@@ -1,0 +1,28 @@
+@prefix :     <http://example.org/hr#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+# --- Classes and hierarchy ---
+:Person        a owl:Class .
+:Organization  a owl:Class .
+:Company       a owl:Class ; rdfs:subClassOf :Organization .
+:University    a owl:Class ; rdfs:subClassOf :Organization .
+:Employment    a owl:Class .          # models a job as its own node
+:Skill         a owl:Class .
+:DataInfrastructure a owl:Class ; rdfs:subClassOf :Skill .
+:StreamingPlatform  a owl:Class ; rdfs:subClassOf :DataInfrastructure .
+
+# --- Axioms ---
+:Person owl:disjointWith :Organization .   # nothing can be both
+
+# --- Object properties with domain and range ---
+:hasEmployment a owl:ObjectProperty ; rdfs:domain :Person ;     rdfs:range :Employment .
+:employer      a owl:ObjectProperty ; rdfs:domain :Employment ; rdfs:range :Company .
+:hasSkill      a owl:ObjectProperty ; rdfs:domain :Person ;     rdfs:range :Skill .
+:usesTechnology a owl:ObjectProperty ; rdfs:domain :Company ;   rdfs:range :Skill .
+
+# --- Data properties ---
+:name     a owl:DatatypeProperty ; rdfs:range xsd:string .
+:jobTitle a owl:DatatypeProperty ; rdfs:domain :Employment ; rdfs:range xsd:string .
+:startDate a owl:DatatypeProperty ; rdfs:domain :Employment ; rdfs:range xsd:gYear .

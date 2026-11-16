@@ -1,0 +1,36 @@
+{
+  "datasets": [
+    {
+      "name": "linkedin_job_postings",
+      "source_url": "https://www.kaggle.com/datasets/arshkon/linkedin-job-postings",
+      "download_url": "https://www.kaggle.com/api/v1/datasets/download/arshkon/linkedin-job-postings?datasetVersionNumber=13",
+      "format": "zip",
+      "files": [
+        "job_postings.csv",
+        "job_details/benefits.csv",
+        "job_details/industries.csv",
+        "job_details/skills.csv",
+        "company_details/companies.csv",
+        "company_details/employee_counts.csv"
+      ]
+    },
+    {
+      "name": "linkedin_job_posts_insights",
+      "source_url": "https://www.kaggle.com/datasets/sindhumadhurii/linkedin-job-posts-insights-dataset",
+      "download_url": "https://www.kaggle.com/api/v1/datasets/download/sindhumadhurii/linkedin-job-posts-insights-dataset?datasetVersionNumber=1&filename=linkedin_job_posts_insights.xlsx",
+      "format": "xlsx",
+      "files": [
+        "linkedin_job_posts_insights.xlsx"
+      ]
+    },
+    {
+      "name": "resume_dataset",
+      "source_url": "https://www.kaggle.com/datasets/snehaanbhawal/resume-dataset",
+      "download_url": "https://www.kaggle.com/api/v1/datasets/download/snehaanbhawal/resume-dataset?datasetVersionNumber=1&filename=Resume%2FResume.csv",
+      "format": "csv",
+      "files": [
+        "Resume/Resume.csv"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "source": "O*NET Database",
+  "version": "31.0",
+  "generated_at_utc": "2026-11-16T20:06:01.831653+00:00",
+  "source_page": "https://www.onetcenter.org/database.html",
+  "license": "https://creativecommons.org/licenses/by/4.0/",
+  "license_details": "https://www.onetcenter.org/license_db.html",
+  "attribution": "O*NET 31.0 Database, U.S. Department of Labor, Employment and Training Administration (USDOL/ETA). Used under CC BY 4.0. O*NET is a trademark of USDOL/ETA.",
+  "modifications": "Selected source tables; grouped labels and aliases; added match keys and local software-example IDs. USDOL/ETA has not approved, endorsed, or tested these modifications.",
+  "sources": [
+    {
+      "file": "raw/occupation_data.csv",
+      "url": "https://www.onetcenter.org/dl_files/database/db_31_0_csv/occupation_data.csv",
+      "rows": 1016,
+      "bytes": 268030,
+      "sha256": "a09eae1d6609686e44e05b7290993a1c8b523d8ca224bc0eedc194c855c3ee02"
+    },
+    {
+      "file": "raw/job_titles.csv",
+      "url": "https://www.onetcenter.org/dl_files/database/db_31_0_csv/job_titles.csv",
+      "rows": 54269,
+      "bytes": 4504432,
+      "sha256": "75a3b46d6edc5996117c10c9ed488c9a06f7495d02969e9d12873ab14a21540c"
+    },
+    {
+      "file": "raw/essential_skills.csv",
+      "url": "https://www.onetcenter.org/dl_files/database/db_31_0_csv/essential_skills.csv",
+      "rows": 18200,
+      "bytes": 2328135,
+      "sha256": "68c4d31d8c55077238395dca40cc4e6d32e6a608b5474bb8264b1f98ae415bd7"
+    },
+    {
+      "file": "raw/transferable_skills.csv",
+      "url": "https://www.onetcenter.org/dl_files/database/db_31_0_csv/transferable_skills.csv",
+      "rows": 45500,
+      "bytes": 6081245,
+      "sha256": "f17d0419e818a3bf2f55076510c76c4aef01cc8f5aee2670d2f44f6f44ac60f7"
+    },
+    {
+      "file": "raw/software_skills.csv",
+      "url": "https://www.onetcenter.org/dl_files/database/db_31_0_csv/software_skills.csv",
+      "rows": 31821,
+      "bytes": 3557545,
+      "sha256": "6aabb96b464288db849580e6510530efff3f80e25dde2bb23f1fc36bb526b016"
+    },
+    {
+      "file": "raw/content_model_reference.csv",
+      "url": "https://www.onetcenter.org/dl_files/database/db_31_0_csv/content_model_reference.csv",
+      "rows": 3006,
+      "bytes": 235856,
+      "sha256": "370033744006dbd5df048431d42a402f6741a00a229b6d0f4e4f4249b6399c04"
+    },
+    {
+      "file": "raw/scales_reference.csv",
+      "url": "https://www.onetcenter.org/dl_files/database/db_31_0_csv/scales_reference.csv",
+      "rows": 33,
+      "bytes": 1006,
+      "sha256": "bcba23858ce21ecaacbde303a8993e35d46724b4afb8c9ec2b10e04f42adcfc9"
+    }
+  ],
+  "outputs": {
+    "occupations.jsonl": {
+      "rows": 1016,
+      "sha256": "b976b5ac40e2d2005557db0c44ebbb5a749670d4f29db45191ad634c98977a9a"
+    },
+    "skills.jsonl": {
+      "rows": 169,
+      "sha256": "ce0445c4b2af767fd2c1d8ab3ec8701d9e413d5ae37ed501b898be865a744959"
+    },
+    "software_examples.jsonl": {
+      "rows": 8753,
+      "sha256": "ea8edef1baefbc7adc780f464e42f5659eab22a45eddebde2e5abe424f94912b"
+    }
+  }
+}

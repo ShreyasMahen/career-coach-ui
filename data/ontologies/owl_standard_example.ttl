@@ -1,0 +1,165 @@
+@prefix : <http://example.org/resume-owl-example#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# ============================================================
+# ONTOLOGY HEADER
+# Every valid OWL ontology declares itself as an owl:Ontology
+# individual. versionInfo/comment are optional but standard
+# practice for anything meant to be published or reused.
+# ============================================================
+<http://example.org/resume-owl-example> a owl:Ontology ;
+    owl:versionInfo "0.1.0" ;
+    rdfs:comment "Didactic OWL DL example: demonstrates transitive/symmetric/functional properties, disjointness, cardinality restrictions, and equivalentClass, using the resume/skill domain. Small and annotated on purpose -- built to be loaded in Protege and inspected construct-by-construct, not as a production ontology." .
+
+
+# ============================================================
+# CLASSES
+# ============================================================
+
+:Person a owl:Class .
+:Skill a owl:Class .
+:TechnicalSkill a owl:Class ; rdfs:subClassOf :Skill .
+:SoftSkill a owl:Class ; rdfs:subClassOf :Skill .
+:Organization a owl:Class .
+:JobPosting a owl:Class .
+
+# DISJOINTNESS: a reasoner can now catch a contradiction if
+# extraction ever asserts the same individual as both a
+# TechnicalSkill and a SoftSkill -- that becomes a logical
+# error, not just a modeling inconsistency you'd have to
+# notice by eye.
+:TechnicalSkill owl:disjointWith :SoftSkill .
+
+# EQUIVALENTCLASS: declares two class names are logically
+# identical. Useful when reconciling vocabularies -- e.g. if
+# you're merging in an external ontology (like CTDL-ASN) that
+# calls the same concept "Candidate" instead of "Person", you
+# don't have to rewrite every triple, just assert equivalence.
+:Candidate a owl:Class ;
+    owl:equivalentClass :Person .
+
+
+# ============================================================
+# OBJECT PROPERTIES
+# ============================================================
+
+:hasSkill a owl:ObjectProperty ;
+    rdfs:domain :Person ;
+    rdfs:range :Skill .
+
+:requiresSkill a owl:ObjectProperty ;
+    rdfs:domain :JobPosting ;
+    rdfs:range :Skill .
+
+# TRANSITIVE PROPERTY: if Django subSkillOf Python, and
+# (hypothetically) DjangoRestFramework subSkillOf Django, a
+# reasoner infers DjangoRestFramework subSkillOf Python
+# automatically -- you never assert that triple yourself.
+:subSkillOf a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:domain :Skill ;
+    rdfs:range :Skill .
+
+# SYMMETRIC PROPERTY: assert AWS relatedSkill GCP once, and
+# the reasoner treats GCP relatedSkill AWS as true without a
+# second triple. Correct choice here because "related" has no
+# inherent direction.
+:relatedSkill a owl:ObjectProperty, owl:SymmetricProperty ;
+    rdfs:domain :Skill ;
+    rdfs:range :Skill .
+
+# FUNCTIONAL PROPERTY: asserts an individual can have AT MOST
+# ONE value for this property. Here: a Person has at most one
+# CURRENT employer. If two different :hasCurrentEmployer
+# triples were ever asserted for the same person, a reasoner
+# flags it as inconsistent -- this is a real data-integrity
+# check, not just documentation.
+:hasCurrentEmployer a owl:ObjectProperty, owl:FunctionalProperty ;
+    rdfs:domain :Person ;
+    rdfs:range :Organization .
+
+# INVERSE PROPERTY: lets you query the relationship from
+# either direction. Assert :personA :hasCurrentEmployer :orgX
+# and a reasoner automatically knows :orgX :employs :personA,
+# without that triple being asserted directly.
+:employs a owl:ObjectProperty ;
+    owl:inverseOf :hasCurrentEmployer ;
+    rdfs:domain :Organization ;
+    rdfs:range :Person .
+
+
+# ============================================================
+# DATA PROPERTIES
+# ============================================================
+
+:yearsUsed a owl:DatatypeProperty ;
+    rdfs:domain :Skill ;
+    rdfs:range xsd:decimal .
+
+# FUNCTIONAL DATA PROPERTY: an individual can have at most one
+# value. A person has exactly one total-years-of-experience
+# figure -- asserting two different values would be a real
+# contradiction, which is exactly what this construct is for.
+:totalYearsExperience a owl:DatatypeProperty, owl:FunctionalProperty ;
+    rdfs:domain :Person ;
+    rdfs:range xsd:decimal .
+
+
+# ============================================================
+# CARDINALITY / EXISTENTIAL RESTRICTIONS
+# These are OWL's way of encoding "must have at least one" or
+# "must have exactly N" as a formal class definition rather
+# than an informal rule you enforce in application code. A
+# reasoner (or a DL-aware validator) can check real data
+# against these and report violations.
+# ============================================================
+
+# "Every JobPosting must require at least one Skill."
+# Modeled as: JobPosting is a subclass of the anonymous class
+# "things that requiresSkill at least one Skill."
+:JobPosting rdfs:subClassOf [
+    a owl:Restriction ;
+    owl:onProperty :requiresSkill ;
+    owl:someValuesFrom :Skill
+] .
+
+# "Every Person has at most 1 current employer" -- reinforces
+# the FunctionalProperty above via an explicit cardinality
+# restriction, shown here for comparison since both approaches
+# exist in OWL and you'll see both used in the wild.
+:Person rdfs:subClassOf [
+    a owl:Restriction ;
+    owl:onProperty :hasCurrentEmployer ;
+    owl:maxCardinality "1"^^xsd:nonNegativeInteger
+] .
+
+
+# ============================================================
+# NAMED INDIVIDUALS
+# Actual instances -- the ABox. Everything above this line was
+# TBox (schema/terminology).
+# ============================================================
+
+:Python a owl:NamedIndividual, :TechnicalSkill .
+:Django a owl:NamedIndividual, :TechnicalSkill ;
+    :subSkillOf :Python .
+:Communication a owl:NamedIndividual, :SoftSkill .
+
+:AcmeCorp a owl:NamedIndividual, :Organization .
+
+:person001 a owl:NamedIndividual, :Person ;
+    :hasSkill :Python, :Django, :Communication ;
+    :hasCurrentEmployer :AcmeCorp ;
+    :totalYearsExperience "5.0"^^xsd:decimal .
+
+:job9231 a owl:NamedIndividual, :JobPosting ;
+    :requiresSkill :Python .
+
+# owl:differentFrom: explicitly asserts two individuals are
+# NOT the same thing. Without OWA + no unique-name-assumption,
+# a reasoner won't assume this on its own -- you have to say
+# it if it matters (e.g. two similarly-named people).
+:person001 owl:differentFrom :person002 .
+:person002 a owl:NamedIndividual, :Person .

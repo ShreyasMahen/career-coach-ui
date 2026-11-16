@@ -1,0 +1,123 @@
+@prefix : <http://example.org/jobmatch#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://example.org/jobmatch> a owl:Ontology .
+
+# ============================================================
+# CLASSES
+# ============================================================
+
+:Degree a owl:Class ;
+    rdfs:label "Degree" ;
+    rdfs:subClassOf owl:Thing .
+
+:Organization a owl:Class ;
+    rdfs:label "Organization" .
+
+:Role a owl:Class ;
+    rdfs:label "Role" .
+
+:Skill a owl:Class ;
+    rdfs:label "Skill" .
+
+:DegreeLevel a owl:Class ;
+    rdfs:label "DegreeLevel" ;
+    rdfs:subClassOf owl:Thing .
+
+:Person a owl:Class ;
+    rdfs:label "Person" .
+
+:Experience a owl:Class ;
+    rdfs:label "Experience" .
+
+:JobPosting a owl:Class ;
+    rdfs:label "JobPosting" ;
+    rdfs:subClassOf owl:Thing .
+
+# ============================================================
+# OBJECT PROPERTIES
+# ============================================================
+
+:atOrganization a owl:ObjectProperty ;
+    rdfs:label "atOrganization" ;
+    rdfs:domain :Experience ;
+    rdfs:range :Organization ;
+    rdfs:subPropertyOf owl:topObjectProperty .
+
+:degreeLevel a owl:ObjectProperty ;
+    rdfs:label "degreeLevel" ;
+    rdfs:domain :Degree ;
+    rdfs:range :DegreeLevel ;
+    rdfs:subPropertyOf owl:topObjectProperty .
+
+:forRole a owl:ObjectProperty ;
+    rdfs:label "forRole" ;
+    rdfs:domain :JobPosting ;
+    rdfs:range :Role ;
+    rdfs:subPropertyOf owl:topObjectProperty .
+
+:hasExperience a owl:ObjectProperty ;
+    rdfs:label "hasExperience" ;
+    rdfs:domain :Person ;
+    rdfs:range :Experience ;
+    rdfs:subPropertyOf owl:topObjectProperty .
+
+:hasSkill a owl:ObjectProperty ;
+    rdfs:label "hasSkill" ;
+    rdfs:domain :Person ;
+    rdfs:range :Skill ;
+    rdfs:subPropertyOf owl:topObjectProperty .
+
+:holdsDegree a owl:ObjectProperty ;
+    rdfs:label "holdsDegree" ;
+    rdfs:domain :Person ;
+    rdfs:range :Degree ;
+    rdfs:subPropertyOf owl:topObjectProperty .
+
+:inRole a owl:ObjectProperty ;
+    rdfs:label "inRole" ;
+    rdfs:domain :Experience ;
+    rdfs:range :Role ;
+    rdfs:subPropertyOf owl:topObjectProperty .
+
+:minDegreeLevel a owl:ObjectProperty ;
+    rdfs:label "minDegreeLevel" ;
+    rdfs:domain :JobPosting ;
+    rdfs:range :DegreeLevel ;
+    rdfs:subPropertyOf owl:topObjectProperty .
+
+:postedBy a owl:ObjectProperty ;
+    rdfs:label "postedBy" ;
+    rdfs:domain :JobPosting ;
+    rdfs:range :Organization ;
+    rdfs:subPropertyOf owl:topObjectProperty .
+
+:requiresSkill a owl:ObjectProperty ;
+    rdfs:label "requiresSkill" ;
+    rdfs:domain :JobPosting ;
+    rdfs:range :Skill ;
+    rdfs:subPropertyOf owl:topObjectProperty .
+
+# ============================================================
+# DATA PROPERTIES
+# ============================================================
+
+:rank a owl:DatatypeProperty ;
+    rdfs:label "rank" ;
+    rdfs:domain :DegreeLevel ;
+    rdfs:range xsd:integer ;
+    rdfs:subPropertyOf owl:topDataProperty .
+
+:minExperience a owl:DatatypeProperty ;
+    rdfs:label "minExperience" ;
+    rdfs:domain :JobPosting ;
+    rdfs:range xsd:float ;
+    rdfs:subPropertyOf owl:topDataProperty .
+
+:yearsExperience a owl:DatatypeProperty ;
+    rdfs:label "yearsExperience" ;
+    rdfs:domain :Experience ;
+    rdfs:range xsd:float ;
+    rdfs:subPropertyOf owl:topDataProperty .

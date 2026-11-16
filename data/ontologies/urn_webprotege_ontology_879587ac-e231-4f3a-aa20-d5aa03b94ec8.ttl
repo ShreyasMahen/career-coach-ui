@@ -1,0 +1,170 @@
+@prefix : <urn:webprotege:ontology:879587ac-e231-4f3a-aa20-d5aa03b94ec8#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xml: <http://www.w3.org/XML/1998/namespace> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@base <urn:webprotege:ontology:879587ac-e231-4f3a-aa20-d5aa03b94ec8> .
+
+<urn:webprotege:ontology:879587ac-e231-4f3a-aa20-d5aa03b94ec8> rdf:type owl:Ontology .
+
+#################################################################
+#    Object Properties
+#################################################################
+
+###  http://webprotege.stanford.edu/R78ZqBKhiRE1Un3ulx3ySE6
+<http://webprotege.stanford.edu/R78ZqBKhiRE1Un3ulx3ySE6> rdf:type owl:ObjectProperty ;
+                                                         rdfs:subPropertyOf owl:topObjectProperty ;
+                                                         rdfs:domain <http://webprotege.stanford.edu/R73TJxgJeIEbe8FuxJIQ5O6> ;
+                                                         rdfs:range <http://webprotege.stanford.edu/R8RWlfr6u9GL0wksPV31Q8g> ;
+                                                         rdfs:label "atOrganization" .
+
+
+###  http://webprotege.stanford.edu/R89y1hvwoXvwZAgd8JKd77K
+<http://webprotege.stanford.edu/R89y1hvwoXvwZAgd8JKd77K> rdf:type owl:ObjectProperty ;
+                                                         rdfs:subPropertyOf owl:topObjectProperty ;
+                                                         rdfs:domain <http://webprotege.stanford.edu/R73TJxgJeIEbe8FuxJIQ5O6> ;
+                                                         rdfs:range <http://webprotege.stanford.edu/RDwmVqPTOUqeaNC6TbEPvIz> ;
+                                                         rdfs:label "inRole" .
+
+
+###  http://webprotege.stanford.edu/R8DHN8tNlcfC7PjLrElVQyT
+<http://webprotege.stanford.edu/R8DHN8tNlcfC7PjLrElVQyT> rdf:type owl:ObjectProperty ;
+                                                         rdfs:subPropertyOf owl:topObjectProperty ;
+                                                         rdfs:domain <http://webprotege.stanford.edu/RDqPk3jrgAbfrgcqwl36lRH> ;
+                                                         rdfs:range <http://webprotege.stanford.edu/RQoox6nmjG5d9zlW6DWzcm> ;
+                                                         rdfs:label "minDegreeLevel" .
+
+
+###  http://webprotege.stanford.edu/R8IdZBY4JmF7BL1MuZIY9M5
+<http://webprotege.stanford.edu/R8IdZBY4JmF7BL1MuZIY9M5> rdf:type owl:ObjectProperty ;
+                                                         rdfs:subPropertyOf owl:topObjectProperty ;
+                                                         rdfs:domain <http://webprotege.stanford.edu/RDqPk3jrgAbfrgcqwl36lRH> ;
+                                                         rdfs:range <http://webprotege.stanford.edu/R8RWlfr6u9GL0wksPV31Q8g> ;
+                                                         rdfs:label "postedBy" .
+
+
+###  http://webprotege.stanford.edu/R8z3ayh1Jfi4FLRK5VMUmJr
+<http://webprotege.stanford.edu/R8z3ayh1Jfi4FLRK5VMUmJr> rdf:type owl:ObjectProperty ;
+                                                         rdfs:subPropertyOf owl:topObjectProperty ;
+                                                         rdfs:domain <http://webprotege.stanford.edu/RBVw8rjxaVBEBtCWsH7kn4K> ;
+                                                         rdfs:range <http://webprotege.stanford.edu/RCNN7aWc1arqfSeQlgLuXDi> ;
+                                                         rdfs:label "hasSkill" .
+
+
+###  http://webprotege.stanford.edu/RBXrsHDPjZizjd0r09us4e5
+<http://webprotege.stanford.edu/RBXrsHDPjZizjd0r09us4e5> rdf:type owl:ObjectProperty ;
+                                                         rdfs:subPropertyOf owl:topObjectProperty ;
+                                                         rdfs:domain <http://webprotege.stanford.edu/RBVw8rjxaVBEBtCWsH7kn4K> ;
+                                                         rdfs:range <http://webprotege.stanford.edu/R73TJxgJeIEbe8FuxJIQ5O6> ;
+                                                         rdfs:label "hasExperience" .
+
+
+###  http://webprotege.stanford.edu/RCNQ1uT6uWw8WHKDCI3Dr15
+<http://webprotege.stanford.edu/RCNQ1uT6uWw8WHKDCI3Dr15> rdf:type owl:ObjectProperty ;
+                                                         rdfs:subPropertyOf owl:topObjectProperty ;
+                                                         rdfs:domain <http://webprotege.stanford.edu/RBVw8rjxaVBEBtCWsH7kn4K> ;
+                                                         rdfs:range <http://webprotege.stanford.edu/R7bXAYRx2Y1E3TXvxiLRCO4> ;
+                                                         rdfs:label "holdsDegree" .
+
+
+###  http://webprotege.stanford.edu/RCmqtL20X9aMmGNe7sYSmfE
+<http://webprotege.stanford.edu/RCmqtL20X9aMmGNe7sYSmfE> rdf:type owl:ObjectProperty ;
+                                                         rdfs:subPropertyOf owl:topObjectProperty ;
+                                                         rdfs:domain <http://webprotege.stanford.edu/RDqPk3jrgAbfrgcqwl36lRH> ;
+                                                         rdfs:range <http://webprotege.stanford.edu/RCNN7aWc1arqfSeQlgLuXDi> ;
+                                                         rdfs:label "requiresSkill" .
+
+
+###  http://webprotege.stanford.edu/RD2Nlk1L1DcvfZ4u1zFAzkR
+<http://webprotege.stanford.edu/RD2Nlk1L1DcvfZ4u1zFAzkR> rdf:type owl:ObjectProperty ;
+                                                         rdfs:subPropertyOf owl:topObjectProperty ;
+                                                         rdfs:domain <http://webprotege.stanford.edu/R7bXAYRx2Y1E3TXvxiLRCO4> ;
+                                                         rdfs:range <http://webprotege.stanford.edu/RQoox6nmjG5d9zlW6DWzcm> ;
+                                                         rdfs:label "degreeLevel" .
+
+
+###  http://webprotege.stanford.edu/RRno79MQCnLlwqwIZ4q8tG
+<http://webprotege.stanford.edu/RRno79MQCnLlwqwIZ4q8tG> rdf:type owl:ObjectProperty ;
+                                                        rdfs:subPropertyOf owl:topObjectProperty ;
+                                                        rdfs:domain <http://webprotege.stanford.edu/RDqPk3jrgAbfrgcqwl36lRH> ;
+                                                        rdfs:range <http://webprotege.stanford.edu/RDwmVqPTOUqeaNC6TbEPvIz> ;
+                                                        rdfs:label "forRole" .
+
+
+#################################################################
+#    Data properties
+#################################################################
+
+###  http://webprotege.stanford.edu/R8T9kjlwl6pTBZTrQmoxAkK
+<http://webprotege.stanford.edu/R8T9kjlwl6pTBZTrQmoxAkK> rdf:type owl:DatatypeProperty ;
+                                                         rdfs:subPropertyOf owl:topDataProperty ;
+                                                         rdfs:domain <http://webprotege.stanford.edu/RQoox6nmjG5d9zlW6DWzcm> ;
+                                                         rdfs:range xsd:integer ;
+                                                         rdfs:label "rank" .
+
+
+###  http://webprotege.stanford.edu/RBNaDyQH6pFR3HyHzF9uUrx
+<http://webprotege.stanford.edu/RBNaDyQH6pFR3HyHzF9uUrx> rdf:type owl:DatatypeProperty ;
+                                                         rdfs:subPropertyOf owl:topDataProperty ;
+                                                         rdfs:domain <http://webprotege.stanford.edu/RDqPk3jrgAbfrgcqwl36lRH> ;
+                                                         rdfs:range xsd:float ;
+                                                         rdfs:label "minExperience" .
+
+
+###  http://webprotege.stanford.edu/RBSbwBStRU2BUlBsJeuGzAN
+<http://webprotege.stanford.edu/RBSbwBStRU2BUlBsJeuGzAN> rdf:type owl:DatatypeProperty ;
+                                                         rdfs:subPropertyOf owl:topDataProperty ;
+                                                         rdfs:domain <http://webprotege.stanford.edu/R73TJxgJeIEbe8FuxJIQ5O6> ;
+                                                         rdfs:range xsd:float ;
+                                                         rdfs:label "yearsExperience" .
+
+
+#################################################################
+#    Classes
+#################################################################
+
+###  http://webprotege.stanford.edu/R73TJxgJeIEbe8FuxJIQ5O6
+<http://webprotege.stanford.edu/R73TJxgJeIEbe8FuxJIQ5O6> rdf:type owl:Class ;
+                                                         rdfs:label "Experience" .
+
+
+###  http://webprotege.stanford.edu/R7bXAYRx2Y1E3TXvxiLRCO4
+<http://webprotege.stanford.edu/R7bXAYRx2Y1E3TXvxiLRCO4> rdf:type owl:Class ;
+                                                         rdfs:subClassOf owl:Thing ;
+                                                         rdfs:label "Degree" .
+
+
+###  http://webprotege.stanford.edu/R8RWlfr6u9GL0wksPV31Q8g
+<http://webprotege.stanford.edu/R8RWlfr6u9GL0wksPV31Q8g> rdf:type owl:Class ;
+                                                         rdfs:label "Organization" .
+
+
+###  http://webprotege.stanford.edu/RBVw8rjxaVBEBtCWsH7kn4K
+<http://webprotege.stanford.edu/RBVw8rjxaVBEBtCWsH7kn4K> rdf:type owl:Class ;
+                                                         rdfs:label "Person" .
+
+
+###  http://webprotege.stanford.edu/RCNN7aWc1arqfSeQlgLuXDi
+<http://webprotege.stanford.edu/RCNN7aWc1arqfSeQlgLuXDi> rdf:type owl:Class ;
+                                                         rdfs:label "Skill" .
+
+
+###  http://webprotege.stanford.edu/RDqPk3jrgAbfrgcqwl36lRH
+<http://webprotege.stanford.edu/RDqPk3jrgAbfrgcqwl36lRH> rdf:type owl:Class ;
+                                                         rdfs:subClassOf owl:Thing ;
+                                                         rdfs:label "JobPosting" .
+
+
+###  http://webprotege.stanford.edu/RDwmVqPTOUqeaNC6TbEPvIz
+<http://webprotege.stanford.edu/RDwmVqPTOUqeaNC6TbEPvIz> rdf:type owl:Class ;
+                                                         rdfs:label "Role" .
+
+
+###  http://webprotege.stanford.edu/RQoox6nmjG5d9zlW6DWzcm
+<http://webprotege.stanford.edu/RQoox6nmjG5d9zlW6DWzcm> rdf:type owl:Class ;
+                                                        rdfs:subClassOf owl:Thing ;
+                                                        rdfs:label "DegreeLevel" .
+
+
+###  Generated by the OWL API (version 4.5.13) https://github.com/owlcs/owlapi
