@@ -1,28 +1,50 @@
-"""Extract one PDF or UTF-8 text resume; models are opt-in."""
+"""Parse a folder of PDF resumes and extract section-specific GLiNER entities."""
 
 import argparse
 import json
 from pathlib import Path
 
-from .pipeline import HybridPipeline, SpacyNER
-from .rdf import to_graph
+from .parser import ResumeParser
+from .entity_extraction import EntityExtractor, TaxonomyResolver
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
-    parser.add_argument("--taxonomy", type=Path, default=Path("data/taxonomy/onet/31.0"))
-    parser.add_argument("--spacy-model", help="Installed spaCy model name/path; enables local NER")
-    parser.add_argument("--output", type=Path, required=True, help="Output prefix for .json and .ttl")
+    parser.add_argument("--rules-only", action="store_true", help="Skip GLiNER and save only parsed features")
+    parser.add_argument("--taxonomy", type=Path,
+                        default=Path(__file__).resolve().parents[2] / "data/taxonomy/onet/31.0",
+                        help="Directory containing the pinned O*NET JSONL lookups")
     args = parser.parse_args()
-    pipeline = HybridPipeline(args.taxonomy, ner=SpacyNER(args.spacy_model) if args.spacy_model else None)
-    result = pipeline.extract_pdf(args.input) if args.input.suffix.lower() == ".pdf" else pipeline.extract_text(args.input.read_text(encoding="utf-8"), source_id=args.input.name)
-    graph = to_graph(result)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.with_suffix(".json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    graph.serialize(destination=args.output.with_suffix(".ttl"), format="turtle")
-    print(f"Extracted {len(result['entities'])} entities; wrote JSON and Turtle to {args.output}")
 
+    parser = ResumeParser()
+    results = parser.run(args.input)
+    records = results.to_dict(orient="records")
+
+    output = args.input.with_suffix(".json")
+    output.write_text(
+        json.dumps(records, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(f"Saved {len(records)} parsed resumes to {output}")
+
+    if not args.rules_only:
+        extractor = EntityExtractor()
+        resolver = TaxonomyResolver(args.taxonomy)
+        entity_records = []
+        for features in records:
+            entities = extractor.extract_entities(features)
+            entity_records.append({
+                "cv_id": features["cv_id"],
+                "parsing_output": output.name,
+                "entity_mappings": resolver.resolve_entities(entities, document_id=features["cv_id"]),
+            })
+        entity_output = output.with_suffix(".entities.json")
+        entity_output.write_text(
+            json.dumps(entity_records, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"Saved {len(entity_records)} entity results to {entity_output}")
 
 if __name__ == "__main__":
     main()

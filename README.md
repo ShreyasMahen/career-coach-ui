@@ -1,5 +1,63 @@
 # career-coach
 
+## Standalone rule parser and GLiNER
+
+```powershell
+uv run python -m career_coach.data-extraction.main data
+uv run python -m career_coach.data-extraction.main data --rules-only
+```
+
+The first command writes `data.json` with parsed features and a separate
+`data.entities.json` with GLiNER predictions and grouped O*NET entity mappings.
+Each entity record includes `cv_id` and `parsing_output` to locate the source
+features. Parsed features are saved before inference and are not mutated by it.
+The second command skips inference and writes only parsing output.
+One model instance serves all resumes and
+section-specific calls. Experience is heuristically separated using date-range
+headers; undated entries may remain combined and require review. Long blocks use
+overlapping model-token windows with duplicate predictions reconciled by score.
+
+`section_texts` preserves case, punctuation and line boundaries for inference.
+Each entity's `source_field` identifies the section string addressed by its
+zero-based, exclusive-end offsets. `experience_refined` contains job blocks;
+`education_refined` retains courses and awards for later LLM processing, excluded
+from GLiNER. Entity mentions are candidates, not verified employment relationships.
+
+`parser.py` handles segmentation/refinement and has no GLiNER dependency.
+`entity_extraction.py` contains `EntityExtractor` (inference, windows, evidence
+validation) and `TaxonomyResolver` (local lookup resolution). `main.py` runs the
+stages in order, reusing one model and one taxonomy index across resumes.
+Education refinement now uses the corresponding original `section_texts` string
+so its offsets remain valid when passed between stages.
+
+Each resume's `entity_mappings` in `data.entities.json` contains:
+
+| Group | Meaning |
+| --- | --- |
+| `resolved` | Exactly one matching skill/software or occupation concept |
+| `unresolved` | Eligible mention with no match, or multiple competing candidates |
+| `not_applicable` | Person, date, organization, university, or another type outside these O*NET lookups |
+
+Mappings preserve the original entity, stable document-scoped `entity_id`,
+canonical ID/namespace/label/version, method, candidates, and unresolved reason.
+Resolution first uses case/whitespace/Unicode-normalized exact labels and aliases,
+then a small reviewable `SKILL_ALIASES` table (e.g. Java → Oracle Java). It does not
+remove meaningful punctuation: C, C++, C#, and .NET remain distinct. Ambiguous
+matches are never automatically selected. `--taxonomy PATH` selects another
+directory containing the pinned manifest and three JSONL lookup files.
+
+These are lexical mappings of emitted entity mentions, not verified facts or
+corrections to GLiNER classifications. Missing entities are not reconstructed,
+and no LLM calls or ontology writes occur. Unresolved entries retain evidence
+for the later LLM resolution stage. Courses and awards remain in features.
+
+Focused validation for this active pipeline:
+
+```powershell
+uv run python -m unittest discover -s tests -p test_resume_parser.py -v
+uv run python -m unittest discover -s tests -p test_entity_resolution.py -v
+```
+
 Minimal resume extraction for later resume/job matching. No database or web service
 is required yet. The legacy DataFrame parser remains available; the new API is
 `career_coach.data_extraction.HybridPipeline` (underscores make it importable normally).

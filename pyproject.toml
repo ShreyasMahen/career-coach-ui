@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "gliner>=0.2.30",
     "pandas==3.1.1",
     "pymupdf==2.1.0",
     "rdflib>=7.6.0",
