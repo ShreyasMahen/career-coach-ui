@@ -9,7 +9,7 @@ Data dictionary: https://www.onetcenter.org/dictionary/31.0/csv/
 From the repository root, with Python 3 (no third-party packages or API key):
 
 ```powershell
-python .\scripts\import_onet.py --download
+python .\src\career_coach\data-extraction\import_onet.py --download
 ```
 
 The importer downloads missing CSVs from the official versioned URLs, validates
@@ -17,7 +17,7 @@ columns and references, and generates JSON Lines lookup files. Existing source
 files are reused. To rebuild entirely offline:
 
 ```powershell
-python .\scripts\import_onet.py
+python .\src\career_coach\data-extraction\import_onet.py
 ```
 
 `--version 31.0` makes the default release explicit. Future releases can be
@@ -47,7 +47,7 @@ All data lives under `onet/31.0/`:
 import json
 from collections import defaultdict
 from pathlib import Path
-from scripts.import_onet import match_key
+from career_coach.data_extraction.import_onet import match_key
 
 root = Path("data/taxonomy/onet/31.0")
 occupation_index = defaultdict(set)
@@ -81,9 +81,11 @@ evidence; they do not establish that a person possesses a skill. When using
 ratings, join `Scale ID` to `scales_reference.csv` and inspect suppression and
 relevance flags in the raw files.
 
-These are file-based lookup imports; no application database or extraction
-pipeline is configured in this repository yet. The full RDF graph is also
-available on the official download page if a triplestore is needed later.
+The importer builds file-based lookups consumed by the
+[data extraction pipeline](../../src/career_coach/data-extraction/README.md).
+The full RDF graph is also available on the official download page if a
+triplestore is needed later. With the project installed through uv, the same
+importer is available as `uv run career-coach-import-onet`.
 
 ## Attribution
 
