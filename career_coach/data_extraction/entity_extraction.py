@@ -4,7 +4,9 @@ import hashlib
 import json
 import unicodedata
 from collections import defaultdict
+from difflib import SequenceMatcher
 from pathlib import Path
+import re
 
 
 class EntityExtractor:
@@ -83,7 +85,7 @@ class TaxonomyResolver:
     """Resolve skill/job-title mentions; unsupported types remain explicitly separate."""
 
     SKILL_LABELS = {"technical skill", "skill", "programming language", "framework",
-                    "software tool", "cloud platform"}
+                    "software tool", "cloud platform", "runtime", "container technology", "markup language"}
     # Explicit, reviewable lexical aliases; never delete punctuation or infer proficiency.
     SKILL_ALIASES = {
         "java": "Oracle Java", ".net": "Microsoft .NET Framework",
@@ -102,6 +104,7 @@ class TaxonomyResolver:
         self.taxonomy = {"source": manifest.get("source", "O*NET Database"),
                          "version": manifest["version"], "alias_version": "1"}
         self.index = {"skill": defaultdict(list), "occupation": defaultdict(list)}
+        self._candidate_cache = {}
         for filename, kind in (("skills.jsonl", "skill"), ("software_examples.jsonl", "skill"),
                                ("occupations.jsonl", "occupation")):
             with (directory / filename).open(encoding="utf-8") as stream:
@@ -115,6 +118,39 @@ class TaxonomyResolver:
         for index in self.index.values():
             for bucket in index.values():
                 bucket.sort(key=lambda c: (c["namespace"], c["id"]))
+
+    def retrieve_candidates(self, text: str, kind: str, limit: int = 8, min_score: float = 0.0) -> list:
+        """Retrieve possible concepts for LLM selection; retrieval never resolves one."""
+        if kind not in self.index or limit < 1:
+            return []
+        key = self.match_key(text)
+        cache_key = (key, kind, limit, min_score)
+        if cache_key in self._candidate_cache:
+            return [dict(candidate) for candidate in self._candidate_cache[cache_key]]
+        terms = set(re.findall(r"\w+|[+#.]", key))
+        meaningful = terms - {"software", "tool", "tools", "model", "models", "platform", "platforms",
+                              "pipeline", "pipelines", "internal", "system", "systems"}
+        ranked = {}
+        for alias, candidates in self.index[kind].items():
+            alias_terms = set(re.findall(r"\w+|[+#.]", alias))
+            overlap = len(terms & alias_terms) / max(len(terms | alias_terms), 1)
+            if not overlap:
+                continue
+            if min_score and not meaningful & alias_terms:
+                continue
+            score = 0.65 * overlap + 0.35 * SequenceMatcher(None, key, alias).ratio()
+            if len(terms) == 1 and terms <= alias_terms:
+                score = max(score, 0.65)  # Preserve short names/acronyms such as CSS and MATLAB.
+            if score < min_score:
+                continue
+            for candidate in candidates:
+                identity = (candidate["namespace"], candidate["id"])
+                if identity not in ranked or score > ranked[identity][0]:
+                    ranked[identity] = (score, candidate)
+        result = [dict(candidate) for score, candidate in sorted(
+            ranked.values(), key=lambda pair: (-pair[0], pair[1]["namespace"], pair[1]["id"]))[:limit]]
+        self._candidate_cache[cache_key] = result
+        return [dict(candidate) for candidate in result]
 
     def resolve_entities(self, entities: list, *, document_id: str) -> dict:
         result = {"taxonomy": self.taxonomy, "resolved": [], "unresolved": [], "not_applicable": []}

@@ -8,8 +8,8 @@ from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-ResumeParser = importlib.import_module("career_coach.data-extraction.parser").ResumeParser
-EntityExtractor = importlib.import_module("career_coach.data-extraction.entity_extraction").EntityExtractor
+ResumeParser = importlib.import_module("career_coach.data_extraction.parser").ResumeParser
+EntityExtractor = importlib.import_module("career_coach.data_extraction.entity_extraction").EntityExtractor
 
 
 class ResumeParserTests(unittest.TestCase):

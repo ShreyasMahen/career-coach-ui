@@ -3,12 +3,12 @@
 ## Standalone rule parser and GLiNER
 
 ```powershell
-uv run python -m career_coach.data-extraction.main data
-uv run python -m career_coach.data-extraction.main data --rules-only
+uv run python -m career_coach.data_extraction.main data
+uv run python -m career_coach.data_extraction.main data --rules-only
 ```
 
-The first command writes `data.json` with parsed features and a separate
-`data.entities.json` with GLiNER predictions and grouped O*NET entity mappings.
+The first command writes `data.json` with parsed features, `data.entities.json`
+with baseline GLiNER/O*NET mappings, and `data.llm.json` with LLM-reviewed mappings.
 Each entity record includes `cv_id` and `parsing_output` to locate the source
 features. Parsed features are saved before inference and are not mutated by it.
 The second command skips inference and writes only parsing output.
@@ -46,16 +46,81 @@ remove meaningful punctuation: C, C++, C#, and .NET remain distinct. Ambiguous
 matches are never automatically selected. `--taxonomy PATH` selects another
 directory containing the pinned manifest and three JSONL lookup files.
 
-These are lexical mappings of emitted entity mentions, not verified facts or
-corrections to GLiNER classifications. Missing entities are not reconstructed,
-and no LLM calls or ontology writes occur. Unresolved entries retain evidence
-for the later LLM resolution stage. Courses and awards remain in features.
+These baseline mappings are lexical matches of emitted entity mentions, not verified
+facts. The deterministic pass does not correct labels or recover missing entities,
+and no ontology writes occur. Unresolved entries retain evidence for the automatic
+LLM resolution stage, which runs automatically after taxonomy resolution. Courses
+and awards remain in features.
+
+## Constrained LLM mapping review
+
+Set `VOYAGER_API_KEY` and `VOYAGER_MODEL=deepseek-v4-1-flash` in `.env`
+(see `.env.example`). The model is read only from `VOYAGER_MODEL`; there is no
+model CLI flag or fallback model. The API endpoint is fixed to
+`https://openai.rc.asu.edu/v1`. Client creation and requests are lazy: imports and
+rules-only runs do not contact Voyager. Normal `main` runs invoke the LLM
+immediately after taxonomy resolution for each resume.
+
+Run the entire pipeline:
+
+```powershell
+uv run python -m career_coach.data_extraction.main data
+```
+
+`llm_mapping.py` is an imported pipeline component, with no standalone entry point.
+LLM settings are constants in that file: 64 calls per resume, 3 parallel source
+reviews, 3,000-character chunks, and a 60-second request timeout. There are no
+LLM tuning flags in `main.py`. Taxonomy selection batches up to 8 queries per call.
+
+This writes `data.llm.json`; `data.json` and `data.entities.json` remain the parsing
+and deterministic mapping baselines. If LLM review fails, parsing results and taxonomy
+results for resumes processed so far are preserved, and no partial LLM output is
+written. `--rules-only` stops before entity extraction and taxonomy, rather than
+skipping LLM review after taxonomy.
+
+Review is limited to three tasks:
+
+1. Recover missed **explicit** entity mentions from bounded source blocks.
+2. Confirm or reclassify existing unresolved/not-applicable entities at the same
+   evidence span. Already resolved mappings are read-only context.
+3. Retrieve local O*NET candidates for remaining taxonomy gaps and ask the model
+   to select a supplied candidate ID or abstain. Retrieval scores never resolve
+   mappings automatically, and the model cannot introduce taxonomy IDs.
+
+Coursework and awards blocks are excluded from LLM review; their features remain
+available for later work. No employment relationships, graph triples, proficiency
+or skills inferred from courses are accepted by this stage's schema.
+
+Voyager currently advertises `supports_response_schema=false` for the selected
+DeepSeek model. The implementation therefore uses JSON-object mode, supplies a
+closed JSON schema in each request, and **validates locally using strict Pydantic
+models**. This is not server-side schema-constrained decoding. No fallback to
+unvalidated prose is allowed. Refusals, incomplete/truncated replies and malformed
+responses fail the review without committing partial LLM output. Individual
+ungrounded or out-of-scope proposals are rejected and recorded in the audit.
+
+Python locates the exact quoted text and computes source offsets; repeated quotes
+require an occurrence index or a known eligible entity ID. Corrected/new entities
+carry LLM provenance; changed classifications clear the old score rather than
+reusing a GLiNER confidence value for a different label. The audit includes original
+entities, model/prompt version, source and baseline hashes, rejected proposals,
+abstentions and call count. Valid quotes establish traceability, not semantic truth;
+inspect and evaluate accepted classifications and taxonomy selections before graph
+ingestion. A confirmed university/person/date appropriately stays `not_applicable`
+to these O*NET lookups, with `llm_review.action=confirm`, rather than receiving an
+invented taxonomy mapping.
+
+The live integration was smoke-tested with synthetic text only: B.S. classification
+repair, missing M.S. recovery, and occupation candidate selection. This is not a
+measurement of extraction quality on the user's datasets.
 
 Focused validation for this active pipeline:
 
 ```powershell
 uv run python -m unittest discover -s tests -p test_resume_parser.py -v
 uv run python -m unittest discover -s tests -p test_entity_resolution.py -v
+uv run python -m unittest discover -s tests -p test_extraction_cli.py -v
+uv run python -m unittest discover -s tests -p test_llm_mapping.py -v
 ```
 
 Minimal resume extraction for later resume/job matching. No database or web service

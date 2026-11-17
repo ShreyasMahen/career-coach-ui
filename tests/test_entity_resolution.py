@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-TaxonomyResolver = importlib.import_module("career_coach.data-extraction.entity_extraction").TaxonomyResolver
+TaxonomyResolver = importlib.import_module("career_coach.data_extraction.entity_extraction").TaxonomyResolver
 
 
 class TaxonomyResolverTests(unittest.TestCase):
@@ -72,3 +72,9 @@ class TaxonomyResolverTests(unittest.TestCase):
         first, second = self.resolve("Python"), self.resolve("Python")
         self.assertEqual(first["resolved"][0]["entity_id"], second["resolved"][0]["entity_id"])
         self.assertEqual(json.loads(json.dumps(first)), first)
+
+    def test_candidate_retrieval_does_not_automatically_resolve(self):
+        candidates = self.resolver.retrieve_candidates("Software Engineer Intern", "occupation")
+        self.assertTrue(any(c["id"] == "occupation-1" for c in candidates))
+        self.assertEqual(self.resolve("Software Engineer Intern", "job title")["counts"]["unresolved"], 1)
+        self.assertEqual(self.resolver.retrieve_candidates("Example University", "university"), [])
