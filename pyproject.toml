@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-career-coach = "career_coach:main"
+career-coach = "career_coach.data_extraction.main:main"
 
 [project.optional-dependencies]
 ner = [
@@ -25,7 +25,7 @@ ner = [
 link-mode = "copy"
 
 [tool.uv.build-backend]
-module-name = "career_coach"
+module-name = "career_coach.data_extraction"
 module-root = ""
 
 [build-system]

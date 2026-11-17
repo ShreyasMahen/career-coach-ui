@@ -30,7 +30,7 @@ From the project root, for rules and taxonomy only:
 
 ```powershell
 uv sync
-uv run python -m career_coach.data_extraction resume.pdf --output outputs/resume
+uv run python -m career_coach.data_extraction.main resume.pdf --output outputs/resume
 ```
 
 To enable local NER, install the optional dependencies and an English model:
@@ -38,7 +38,7 @@ To enable local NER, install the optional dependencies and an English model:
 ```powershell
 uv sync --extra ner
 uv run --extra ner python -m spacy download en_core_web_sm
-uv run --extra ner python -m career_coach.data_extraction resume.pdf --spacy-model en_core_web_sm --output outputs/resume
+uv run --extra ner python -m career_coach.data_extraction.main resume.pdf --spacy-model en_core_web_sm --output outputs/resume
 ```
 
 The model download needs internet; inference runs locally. A general spaCy English
