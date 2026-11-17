@@ -1,6 +1,6 @@
-import fitz
+from __future__ import annotations
+
 import re
-import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
@@ -67,8 +67,13 @@ class CVPipeline:
     # PDF
     # =========================
     def pdf_to_text(self, pdf_path: Path) -> str:
-        doc = fitz.open(pdf_path)
-        return "\n".join(p.get_text("text") for p in doc)
+        import pymupdf
+        with pymupdf.open(pdf_path) as doc:
+            return "\n".join(p.get_text("text") for p in doc)
+
+    def extract_hybrid(self, text, *, source_id, taxonomy_dir, ner=None, llm=None, llm_model=None):
+        from career_coach.data_extraction import HybridPipeline
+        return HybridPipeline(taxonomy_dir, ner=ner, llm=llm, llm_model=llm_model).extract_text(text, source_id=source_id)
 
     # =========================
     # FEATURE EXTRACTION
@@ -176,6 +181,8 @@ class CVPipeline:
     # PIPELINE
     # =========================
     def run(self, pdf_folder: str) -> pd.DataFrame:
+        import pandas as pd
+
         rows = []
 
         for pdf in Path(pdf_folder).glob("*.pdf"):
@@ -198,3 +205,7 @@ class CVPipeline:
         df["education_enriched"] = df["education"].apply(self.enrich_education)
 
         return df
+
+
+# Preserve the public name used by this package's existing __init__.py.
+ResumeParser = CVPipeline

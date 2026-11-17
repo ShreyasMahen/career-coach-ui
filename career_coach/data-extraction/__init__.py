@@ -1,1 +1,1 @@
-from .parser import CVPipeline
+from .parser import ResumeParser

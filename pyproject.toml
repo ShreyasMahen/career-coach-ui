@@ -10,10 +10,16 @@ requires-python = ">=3.13"
 dependencies = [
     "pandas==3.1.1",
     "pymupdf==2.1.0",
+    "rdflib>=7.6.0",
 ]
 
 [project.scripts]
 career-coach = "career_coach:main"
+
+[project.optional-dependencies]
+ner = [
+    "spacy>=3.8.18",
+]
 
 [tool.uv]
 link-mode = "copy"
