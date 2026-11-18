@@ -12,10 +12,10 @@ from dataclasses import dataclass
 from rdflib import Graph, Literal, RDF, URIRef
 
 from .entity_extraction import TaxonomyResolver
-from .ontology import OntologyNode, load_ontology
+from .ontology import NodeMetadata, OntologyNode, load_ontology
 
 
-POPULATION_VERSION = "explicit-population-v1"
+POPULATION_VERSION = "explicit-population-v2"
 # A small, versioned policy, not a universal ordering of all credentials.
 DEGREE_LEVELS = {
     "associate": (1, {"aa", "as", "aas", "associate", "associate degree", "associate of science", "associate of arts"}),
@@ -58,9 +58,14 @@ def _blocks(features, section, category=None):
     return blocks
 
 
-def _header_end(block):
-    """Bound header evidence before bullets/prose, at most five nonempty lines."""
+def _header_end(block, mentions=()):
+    """End after the title and subsequent fully entity-covered header lines.
+
+    Organization mentions inside unbulleted achievement sentences do not extend
+    the header. All positions refer to the original section text.
+    """
     offset, count = block["start"], 0
+    rows = []
     for raw in block["text"].splitlines(keepends=True):
         line = raw.strip()
         if line:
@@ -70,8 +75,30 @@ def _header_end(block):
             if line.endswith(".") and len(line.split()) > 8:
                 break
             count += 1
+            rows.append((offset, offset + len(raw), raw))
         offset += len(raw)
-    return min(offset, block["end"])
+    cap = min(offset, block["end"])
+    for index, (start, end, raw) in enumerate(rows):
+        titles = [i["entity"] for i in mentions if i["entity"]["label"] == "job title"
+                  and start <= i["entity"]["start"] < i["entity"]["end"] <= end]
+        if not any(not raw[:e["start"] - start].strip() or re.fullmatch(
+                r"(?:job\s*)?title\s*:|role\s*:", raw[:e["start"] - start].strip(), re.I)
+                   for e in titles):
+            continue
+        boundary = end
+        for next_start, next_end, next_raw in rows[index + 1:]:
+            remainder = list(next_raw)
+            for item in mentions:
+                e = item["entity"]
+                if e["label"] in {"date", "location", "organization", "job title"} and next_start <= e["start"] < e["end"] <= next_end:
+                    remainder[e["start"] - next_start:e["end"] - next_start] = " " * (e["end"] - e["start"])
+            leftover = "".join(remainder)
+            leftover = re.sub(r"\b(?:present|current|to|location|dates?|employer|company|organization)\b", "", leftover, flags=re.I)
+            if re.search(r"\w", leftover):
+                break
+            boundary = next_end
+        return min(boundary, block["end"])
+    return cap
 
 
 @dataclass
@@ -169,9 +196,9 @@ class OntologyPopulator:
                 [mapping["namespace"], mapping["id"], mapping["source_version"]])
             return node(kind, identity, [item], label=mapping["label"], taxonomy=dict(mapping))
 
-        person = node("Person", f"urn:career-coach:resume:{document_id}:person",
-                      [i for i in items if i["entity"]["section"] == "title" and i["entity"]["label"] == "person"],
-                      rule="resume_subject")
+        names = [i for i in items if i["entity"]["section"] == "title" and i["entity"]["label"] == "person"]
+        person = node("Person", f"urn:career-coach:resume:{document_id}:person", names,
+                      label=names[0]["entity"]["text"] if len(names) == 1 else None, rule="resume_subject")
 
         # A skills list explicitly attributes its entries to the applicant. Other
         # sections need stronger relationship extraction, not mere co-occurrence.
@@ -193,9 +220,10 @@ class OntologyPopulator:
         if texts.get("experience") and not experience_blocks:
             diagnostic("missing_experience_blocks")
         for block in experience_blocks:
-            header_end = _header_end(block)
-            members = [i for i in items if i["entity"]["section"] == "experience"
-                       and block["start"] <= i["entity"]["start"] < i["entity"]["end"] <= header_end]
+            block_mentions = [i for i in items if i["entity"]["section"] == "experience"
+                              and block["start"] <= i["entity"]["start"] < i["entity"]["end"] <= block["end"]]
+            header_end = _header_end(block, block_mentions)
+            members = [i for i in block_mentions if i["entity"]["end"] <= header_end]
             # Titles embedded in achievement sentences or collaborator references
             # are not applicant job titles, even when GLiNER labelled them so.
             roles = []
@@ -275,6 +303,14 @@ class OntologyPopulator:
         for item in items:
             if item["entity_id"] not in used:
                 diagnostic("mention_not_represented_in_current_graph", [item])
+        for identity, instance in nodes.items():
+            info = node_sources[identity]
+            instance.metadata = NodeMetadata(
+                label=info.get("label"), taxonomy=info.get("taxonomy"), original_title=info.get("original_title"),
+                evidence=[{"entity_id": entity_id, "source_document": features["cv_id"],
+                           **{key: evidence[entity_id]["entity"][key]
+                              for key in ("source_field", "start", "end", "text", "label")}}
+                          for entity_id in info["entity_ids"]])
         ordered_nodes = [nodes[key] for key in sorted(nodes)]
         self.schema.validate_instances(ordered_nodes)
         graph = Graph()

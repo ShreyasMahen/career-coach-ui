@@ -7,6 +7,7 @@ import unittest
 
 from rdflib import Graph, Namespace, RDF, URIRef
 
+from career_coach.data_extraction.ontology import OntologyDocument
 from career_coach.data_extraction.ontology_population import OntologyPopulator
 
 
@@ -34,6 +35,7 @@ class PopulationTests(unittest.TestCase):
         ]}
         self.reviewed = {"cv_id": self.features["cv_id"], "entity_mappings": {
             "resolved": [], "unresolved": [], "not_applicable": []}}
+        self.next_id = 0
         self.add("skills", "Python", "programming language", "resolved", "python")
         self.add("skills", "Python", "programming language", "resolved", "python", occurrence=1)
         self.add("skills", "Docker", "software tool", "resolved", "docker")
@@ -57,8 +59,9 @@ class PopulationTests(unittest.TestCase):
         entity = {"section": section, "source_field": f"section_texts.{section}",
                   "text": quote, "start": start, "end": start + len(quote), "label": label,
                   "block_index": 999, "category": section}
-        item = {"entity_id": f"entity-{sum(map(len, self.reviewed['entity_mappings'].values()))}",
+        item = {"entity_id": f"entity-{self.next_id}",
                 "entity": entity, "status": status, "mapping": None}
+        self.next_id += 1
         if canonical:
             item.update(taxonomy_type="occupation" if label == "job title" else "skill", method="exact_match",
                         mapping={"id": canonical, "namespace": "test:occupation" if label == "job title" else "test:software",
@@ -68,6 +71,71 @@ class PopulationTests(unittest.TestCase):
 
     def populate(self):
         return self.populator.populate(self.features, self.reviewed)
+
+    def replace_experience(self, text):
+        self.features["section_texts"]["experience"] = text
+        self.features["experience_refined"] = [{"start": 0, "end": len(text), "text": text}]
+        for group in self.reviewed["entity_mappings"]:
+            self.reviewed["entity_mappings"][group] = [
+                i for i in self.reviewed["entity_mappings"][group] if i["entity"]["section"] != "experience"]
+
+    def test_metadata_survives_final_serialization(self):
+        self.features["section_texts"]["title"] = "Jane Doe"
+        self.add("title", "Jane Doe", "person")
+        result = self.populate()
+        document = OntologyDocument(cv_id=self.features["cv_id"], nodes=result.nodes)
+        nodes = json.loads(document.model_dump_json())["nodes"]
+        skill = next(n for n in nodes if n["type"].endswith("#Skill"))
+        self.assertEqual(skill["metadata"]["label"], "Python")
+        self.assertEqual(skill["metadata"]["taxonomy"]["source_version"], "31.0")
+        self.assertEqual(len(skill["metadata"]["evidence"]), 2)
+        experience = next(n for n in nodes if n["type"].endswith("#Experience"))
+        self.assertEqual(experience["metadata"]["original_title"], "Software Engineer")
+        person = next(n for n in nodes if n["type"].endswith("#Person"))
+        self.assertEqual(person["metadata"]["label"], "Jane Doe")
+        for node in nodes:
+            for evidence in node["metadata"]["evidence"]:
+                section = evidence["source_field"].split(".")[1]
+                self.assertEqual(self.features["section_texts"][section][evidence["start"]:evidence["end"]], evidence["text"])
+                self.assertEqual(evidence["source_document"], "example.pdf")
+
+    def test_unbulleted_achievement_organization_is_not_part_of_header(self):
+        self.replace_experience("American Express\nJune - August 2025\nSoftware Engineer Intern | Python\nPhoenix, Arizona\nTransitioned tools used by reliability engineering team onto an internal platform.")
+        self.add("experience", "American Express", "organization")
+        self.add("experience", "June - August 2025", "date")
+        self.add("experience", "Software Engineer Intern", "job title", "resolved", "developer")
+        self.add("experience", "Phoenix", "location")
+        self.add("experience", "Arizona", "location")
+        team = self.add("experience", "reliability engineering team", "organization")
+        result = self.populate()
+        experience = next(result.graph.subjects(RDF.type, JM.Experience))
+        employer = next(result.graph.objects(experience, JM.atOrganization))
+        self.assertEqual(result.report["nodes"][str(employer)]["label"], "American Express")
+        block = result.report["nodes"][str(experience)]["block"]
+        self.assertEqual(block["end"], self.features["section_texts"]["experience"].index("Transitioned"))
+        self.assertNotIn(team["entity_id"], result.report["nodes"][str(experience)]["entity_ids"])
+
+    def test_wrapped_achievement_with_role_reference_is_not_header(self):
+        self.replace_experience("Example Corp\n2024 - Present\nSoftware Engineer\nCollaborated with lead developers to build features for a game\nusing a research platform.")
+        self.add("experience", "Example Corp", "organization")
+        self.add("experience", "2024 - Present", "date")
+        self.add("experience", "Software Engineer", "job title", "resolved", "developer")
+        colleague = self.add("experience", "lead developers", "job title", "resolved", "lead-developer")
+        result = self.populate()
+        experience = next(result.graph.subjects(RDF.type, JM.Experience))
+        self.assertNotIn(colleague["entity_id"], result.report["nodes"][str(experience)]["entity_ids"])
+        self.assertEqual(len(list(result.graph.objects(experience, JM.inRole))), 1)
+
+    def test_organization_and_date_lines_after_title_are_preserved(self):
+        self.replace_experience("Software Engineer\nExample Corp\n2024 - Present\nBuilt services for Partner Inc.")
+        self.add("experience", "Software Engineer", "job title", "resolved", "developer")
+        self.add("experience", "Example Corp", "organization")
+        self.add("experience", "2024 - Present", "date")
+        self.add("experience", "Partner Inc", "organization")
+        result = self.populate()
+        experience = next(result.graph.subjects(RDF.type, JM.Experience))
+        employer = next(result.graph.objects(experience, JM.atOrganization))
+        self.assertEqual(result.report["nodes"][str(employer)]["label"], "Example Corp")
 
     def test_populates_and_round_trips_supported_relationships(self):
         before = copy.deepcopy((self.features, self.reviewed))

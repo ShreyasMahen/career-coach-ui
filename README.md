@@ -41,6 +41,7 @@ The pipeline writes only `resumes.json` next to the input folder after all resum
 - `resumes`: the list of populated resume objects.
 - `cv_id`: the source PDF filename for each resume.
 - `nodes`: validated ontology instances with `id`, `type`, and properties such as `hasSkill`.
+- `metadata`: node labels, taxonomy identifiers/version, original job titles, and source evidence.
 
 Relationships reference node IDs; unknown or unsupported relationships remain unasserted.
 Intermediate results stay in memory. The pipeline does not write to Neo4j.

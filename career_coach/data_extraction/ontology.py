@@ -19,6 +19,35 @@ IRI_PATTERN = r'^[A-Za-z][A-Za-z0-9+.-]*:[^\s<>"{}|\\^`]+$'
 DATATYPES = {XSD.integer: int, XSD.float: float, XSD.string: str, XSD.boolean: bool}
 
 
+class TaxonomyReference(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    id: str
+    namespace: str
+    label: str
+    source_version: str
+
+
+class SourceEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    entity_id: str
+    source_document: str
+    source_field: str
+    start: int = Field(ge=0)
+    end: int = Field(gt=0)
+    text: str
+    label: str
+
+
+class NodeMetadata(BaseModel):
+    """JSON transport metadata, separate from properties declared in the TTL."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    label: str | None = None
+    taxonomy: TaxonomyReference | None = None
+    original_title: str | None = None
+    evidence: list[SourceEvidence] = Field(default_factory=list)
+
+
 class OntologyNode(BaseModel):
     """Base for generated classes; id identifies an individual, not an OWL class."""
 
@@ -26,6 +55,7 @@ class OntologyNode(BaseModel):
                               allow_inf_nan=False)
     rdf_type: ClassVar[str]
     id: str = Field(pattern=IRI_PATTERN)
+    metadata: NodeMetadata = Field(default_factory=NodeMetadata)
 
 
 class OntologyProperty(BaseModel):
@@ -47,7 +77,7 @@ class OntologyDocument(BaseModel):
 
     @field_serializer("nodes")
     def serialize_nodes(self, nodes):
-        return [{"type": node.rdf_type, **node.model_dump(mode="json", by_alias=True)}
+        return [{"type": node.rdf_type, **node.model_dump(mode="json", by_alias=True, exclude_none=True)}
                 for node in nodes]
 
 
@@ -144,7 +174,7 @@ def load_ontology(path: str | Path = SCHEMA_PATH) -> OntologySchema:
             alias = _local_name(iri)
             name = re.sub(r"(?<!^)(?=[A-Z])", "_", alias).lower()
             if (not name.isidentifier() or name.startswith("_") or name.startswith("model_")
-                    or hasattr(OntologyNode, name) or name == "id" or name in fields[str(domain)]):
+                    or hasattr(OntologyNode, name) or name in OntologyNode.model_fields or name in fields[str(domain)]):
                 raise ValueError(f"Unsupported or colliding field name: {alias}")
             properties[str(iri)] = OntologyProperty(
                 iri=str(iri), field_name=name, kind=kind, domain=str(domain), range=str(range_iri))

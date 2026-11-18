@@ -71,6 +71,9 @@ class ExtractionOutputTests(unittest.TestCase):
         person = next(n for n in nodes.values() if n["type"].endswith("#Person"))
         skill = nodes[person["hasSkill"][0]]
         self.assertTrue(skill["type"].endswith("#Skill"))
+        self.assertEqual(skill["metadata"]["label"], "Python")
+        self.assertEqual(skill["metadata"]["taxonomy"], self.mapping["mapping"])
+        self.assertEqual(skill["metadata"]["evidence"][0]["text"], "Python")
         self.assertIn("hasExperience", person)
         self.assertNotIn("has_skill", person)
 

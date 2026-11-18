@@ -119,7 +119,10 @@ Neo4j insertion and match scoring are outside this step.
   negation guard. Explicit usage in experience/projects is deferred rather than
   interpreted from a keyword occurrence. Unknown canonical mappings are reported.
 - `hasExperience` and `inRole`: one name-leading title in the first five header
-  lines, before detected bullets/prose, supported by an organization or date.
+  lines, supported by an organization or date. After the title, only fully
+  entity-covered header lines (dates, locations, organization names, or another
+  title indicating ambiguity) extend the header. Unbulleted achievement prose
+  stops it; organization mentions inside that prose cannot become employers.
   Ambiguous headers are omitted; missing occupation mappings leave `inRole` unset.
 - `atOrganization`: exactly one header organization, on a name-leading line with
   no prose suffix. Multiple organizations are reported, not arbitrarily selected.
@@ -137,3 +140,9 @@ document/node identities, labels/taxonomy metadata, all input entity evidence,
 relationship/literal assertion rules, supporting entity IDs and header spans,
 and omission diagnostics. RDF type evidence is recorded per node. Population
 does not prove that accepted extraction labels or mappings are semantically true.
+
+The final JSON also preserves typed `metadata` on each node: its label, canonical
+taxonomy namespace/ID/version, original job title where applicable, and supporting
+entity spans with source document, original text and extraction label. Metadata is
+a transport envelope, not an additional TTL predicate. It stays in the same final
+JSON file; complete diagnostics and assertion reports remain in memory.
