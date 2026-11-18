@@ -3,6 +3,7 @@ import importlib
 import json
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -10,89 +11,118 @@ cli = importlib.import_module("career_coach.data_extraction.main")
 
 
 class ExtractionOutputTests(unittest.TestCase):
-    def run_cli(self, rules_only=False):
+    def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        root = Path(temporary.name)
-        features = [{"cv_id": "resume.pdf", "section_texts": {"skills": "Python"}, "skills_list": ["python"]}]
-        original = copy.deepcopy(features)
-        parsed = Mock()
-        parsed.to_dict.return_value = features
-        arguments = ["extract", str(root / "data")]
+        self.root = Path(temporary.name)
+        self.features = [{"cv_id": "resume.pdf", "section_texts": {"skills": "Python"}}]
+        self.mapping = {"entity_id": "python-evidence", "status": "resolved", "taxonomy_type": "skill",
+                        "entity": {"text": "Python", "label": "programming language", "section": "skills",
+                                   "source_field": "section_texts.skills", "start": 0, "end": 6},
+                        "mapping": {"id": "python", "namespace": "test:software",
+                                    "source_version": "31.0", "label": "Python"}}
+
+    def run_cli(self, rules_only=False, failure=None):
+        original = copy.deepcopy(self.features)
+        arguments = ["extract", str(self.root / "data")]
         if rules_only:
             arguments.append("--rules-only")
-        with patch("sys.argv", arguments), patch.object(cli, "ResumeParser") as parser, patch.object(cli, "EntityExtractor") as extractor, patch.object(cli, "TaxonomyResolver") as resolver, patch("career_coach.data_extraction.llm_mapping.LLMMappingResolver") as llm_resolver:
+        with ExitStack() as stack:
+            stack.enter_context(patch("sys.argv", arguments))
+            parser = stack.enter_context(patch.object(cli, "ResumeParser"))
+            extractor = stack.enter_context(patch.object(cli, "EntityExtractor"))
+            taxonomy = stack.enter_context(patch.object(cli, "TaxonomyResolver"))
+            llm = stack.enter_context(patch("career_coach.data_extraction.llm_mapping.LLMMappingResolver"))
+            parsed = Mock()
+            parsed.to_dict.return_value = self.features
             parser.return_value.run.return_value = parsed
-            extractor.return_value.extract_entities.return_value = [{"text": "Python", "label": "technical skill"}]
-            resolver.return_value.resolve_entities.return_value = {"resolved": [], "unresolved": []}
-            llm_resolver.return_value.resolve.return_value = {"entity_mappings": {"resolved": []}, "llm_audit": {"calls": 1}}
-            cli.main()
+            extractor.return_value.extract_entities.return_value = []
+            taxonomy.return_value.resolve_entities.return_value = {"resolved": []}
+            llm.return_value.resolve.return_value = {
+                "entity_mappings": {"resolved": [self.mapping]}, "llm_audit": {"calls": 1}}
+            if failure == "llm":
+                llm.return_value.resolve.side_effect = ValueError("Review failed")
+            elif failure == "population":
+                stack.enter_context(patch("career_coach.data_extraction.ontology_population.OntologyPopulator.populate",
+                                          side_effect=ValueError("Population failed")))
+            if failure:
+                with self.assertRaises(ValueError):
+                    cli.main()
+            else:
+                cli.main()
             if rules_only:
                 extractor.assert_not_called()
-                resolver.assert_not_called()
-                llm_resolver.assert_not_called()
-            else:
-                llm_resolver.return_value.resolve.assert_called_once_with(features[0], resolver.return_value.resolve_entities.return_value)
-        self.assertEqual(features, original)
-        self.assertEqual(json.loads((root / "data.json").read_text(encoding="utf-8")), original)
-        return root
+                taxonomy.assert_not_called()
+                llm.assert_not_called()
+            elif not failure:
+                llm.return_value.resolve.assert_called_once_with(
+                    self.features[0], taxonomy.return_value.resolve_entities.return_value)
+        self.assertEqual(self.features, original)
 
-    def test_entities_are_saved_separately_without_mutating_features(self):
-        root = self.run_cli()
-        record = json.loads((root / "data.entities.json").read_text(encoding="utf-8"))[0]
-        self.assertEqual(record["cv_id"], "resume.pdf")
-        self.assertEqual(record["parsing_output"], "data.json")
-        self.assertNotIn("entities", record)
-        self.assertIn("entity_mappings", record)
+    def test_only_final_pydantic_json_is_written(self):
+        self.run_cli()
+        self.assertEqual({p.name for p in self.root.iterdir()}, {"data.json"})
+        result = json.loads((self.root / "data.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(result), {"resumes"})
+        resume = result["resumes"][0]
+        self.assertEqual(set(resume), {"cv_id", "nodes"})
+        self.assertEqual(resume["cv_id"], "resume.pdf")
+        nodes = {n["id"]: n for n in resume["nodes"]}
+        person = next(n for n in nodes.values() if n["type"].endswith("#Person"))
+        skill = nodes[person["hasSkill"][0]]
+        self.assertTrue(skill["type"].endswith("#Skill"))
+        self.assertIn("hasExperience", person)
+        self.assertNotIn("has_skill", person)
 
-    def test_rules_only_writes_only_parsed_features(self):
-        root = self.run_cli(rules_only=True)
-        self.assertFalse((root / "data.entities.json").exists())
+    def test_rules_only_keeps_one_parsing_output(self):
+        self.run_cli(rules_only=True)
+        self.assertEqual({p.name for p in self.root.iterdir()}, {"data.json"})
+        self.assertEqual(json.loads((self.root / "data.json").read_text()), self.features)
 
-    def test_default_pipeline_always_writes_llm_result(self):
-        root = self.run_cli()
-        result = json.loads((root / "data.llm.json").read_text(encoding="utf-8"))[0]
-        baseline = json.loads((root / "data.entities.json").read_text(encoding="utf-8"))[0]
-        self.assertEqual(result["entity_output"], "data.entities.json")
-        self.assertEqual(result["llm_audit"]["calls"], 1)
-        self.assertNotIn("llm_audit", baseline)
+    def test_failure_produces_no_partial_or_intermediate_files(self):
+        for stage in ("llm", "population"):
+            with self.subTest(stage=stage):
+                self.run_cli(failure=stage)
+                self.assertEqual(list(self.root.iterdir()), [])
 
-    def test_llm_failure_preserves_baseline_files(self):
-        from career_coach.data_extraction.llm_mapping import LLMMappingError
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            parsed = Mock()
-            parsed.to_dict.return_value = [{"cv_id": "resume.pdf"}]
-            with patch("sys.argv", ["extract", str(root / "data")]), patch.object(cli, "ResumeParser") as parser, patch.object(cli, "EntityExtractor") as extractor, patch.object(cli, "TaxonomyResolver") as taxonomy, patch("career_coach.data_extraction.llm_mapping.LLMMappingResolver") as llm:
-                parser.return_value.run.return_value = parsed
-                extractor.return_value.extract_entities.return_value = []
-                taxonomy.return_value.resolve_entities.return_value = {"resolved": [], "unresolved": [], "not_applicable": []}
-                llm.return_value.resolve.side_effect = LLMMappingError("Test schema failure")
-                with self.assertRaises(LLMMappingError):
-                    cli.main()
-            self.assertTrue((root / "data.json").exists())
-            self.assertTrue((root / "data.entities.json").exists())
-            self.assertFalse((root / "data.llm.json").exists())
+    def test_failure_preserves_previous_final_output(self):
+        output = self.root / "data.json"
+        output.write_text("previous successful output", encoding="utf-8")
+        self.run_cli(failure="population")
+        self.assertEqual(output.read_text(encoding="utf-8"), "previous successful output")
+        self.assertEqual({p.name for p in self.root.iterdir()}, {"data.json"})
 
-    def test_llm_runs_immediately_after_taxonomy_for_each_resume(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            events = []
-            records = [{"cv_id": "first.pdf"}, {"cv_id": "second.pdf"}]
-            parsed = Mock()
-            parsed.to_dict.return_value = records
+    def test_each_resume_runs_through_population_in_order(self):
+        self.features = [{"cv_id": name, "section_texts": {}} for name in ("first.pdf", "second.pdf")]
+        events = []
+        with ExitStack() as stack:
+            stack.enter_context(patch("sys.argv", ["extract", str(self.root / "data")]))
+            parser = stack.enter_context(patch.object(cli, "ResumeParser"))
+            extractor = stack.enter_context(patch.object(cli, "EntityExtractor"))
+            taxonomy = stack.enter_context(patch.object(cli, "TaxonomyResolver"))
+            llm = stack.enter_context(patch("career_coach.data_extraction.llm_mapping.LLMMappingResolver"))
+            from career_coach.data_extraction.ontology_population import OntologyPopulator
+            actual_populate = OntologyPopulator.populate
+            def populate(instance, features, reviewed):
+                events.append(("population", features["cv_id"]))
+                return actual_populate(instance, features, reviewed)
+            stack.enter_context(patch.object(OntologyPopulator, "populate", populate))
+            parser.return_value.run.return_value.to_dict.return_value = self.features
             def extract(features):
                 events.append(("extract", features["cv_id"]))
                 return []
             def resolve(entities, *, document_id):
                 events.append(("taxonomy", document_id))
-                return {"document_id": document_id}
+                return {}
             def review(features, mappings):
                 events.append(("llm", features["cv_id"]))
-                return {"entity_mappings": mappings, "llm_audit": {}}
-            with patch("sys.argv", ["extract", str(Path(temporary) / "data")]), patch.object(cli, "ResumeParser") as parser, patch.object(cli, "EntityExtractor") as extractor, patch.object(cli, "TaxonomyResolver") as taxonomy, patch("career_coach.data_extraction.llm_mapping.LLMMappingResolver") as llm:
-                parser.return_value.run.return_value = parsed
-                extractor.return_value.extract_entities.side_effect = extract
-                taxonomy.return_value.resolve_entities.side_effect = resolve
-                llm.return_value.resolve.side_effect = review
-                cli.main()
-            self.assertEqual(events, [(stage, name) for name in ("first.pdf", "second.pdf") for stage in ("extract", "taxonomy", "llm")])
+                return {"entity_mappings": {}, "llm_audit": {}}
+            extractor.return_value.extract_entities.side_effect = extract
+            taxonomy.return_value.resolve_entities.side_effect = resolve
+            llm.return_value.resolve.side_effect = review
+            cli.main()
+        self.assertEqual(events, [(stage, name) for name in ("first.pdf", "second.pdf")
+                                  for stage in ("extract", "taxonomy", "llm", "population")])
+        result = json.loads((self.root / "data.json").read_text())
+        self.assertEqual(len(result["resumes"]), 2)
+        self.assertEqual({p.name for p in self.root.iterdir()}, {"data.json"})

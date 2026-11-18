@@ -1,4 +1,4 @@
-"""Parse resumes, extract entities, resolve taxonomy, then run constrained LLM review."""
+"""Parse resumes, resolve/review entities, then populate the job-match ontology."""
 
 import argparse
 import json
@@ -24,42 +24,35 @@ def main():
     records = results.to_dict(orient="records")
 
     output = args.input.with_suffix(".json")
-    output.write_text(
-        json.dumps(records, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    print(f"Saved {len(records)} parsed resumes to {output}")
-
-    if not args.rules_only:
+    if args.rules_only:
+        payload = json.dumps(records, ensure_ascii=False, indent=2)
+    else:
         from .llm_mapping import LLMMappingResolver
+        from .ontology import OntologyDocument, OntologyOutput
+        from .ontology_population import OntologyPopulator
+
         extractor = EntityExtractor()
         resolver = TaxonomyResolver(args.taxonomy)
         llm = LLMMappingResolver(resolver)
-        entity_records = []
-        llm_records = []
-        entity_output = output.with_suffix(".entities.json")
-        try:
-            for features in records:
-                entities = extractor.extract_entities(features)
-                mappings = resolver.resolve_entities(entities, document_id=features["cv_id"])
-                entity_records.append({"cv_id": features["cv_id"], "parsing_output": output.name,
-                                       "entity_mappings": mappings})
-                print(f"Reviewing explicit entities and mappings for {features['cv_id']}")
-                reviewed = llm.resolve(features, mappings)
-                audit = reviewed["llm_audit"]
-                if "timing" in audit:
-                    print(f"LLM review completed in {audit['timing']['total_seconds']:.2f}s ({audit['calls']} requests)")
-                llm_records.append({"cv_id": features["cv_id"], "parsing_output": output.name,
-                                    "entity_output": entity_output.name,
-                                    **reviewed})
-        finally:
-            # Preserve completed taxonomy results even when an LLM request fails.
-            entity_output.write_text(json.dumps(entity_records, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            print(f"Saved {len(entity_records)} entity results to {entity_output}")
-        llm_output = output.with_suffix(".llm.json")
-        llm_output.write_text(json.dumps(llm_records, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print(f"Saved LLM-reviewed mappings to {llm_output}")
+        populator = OntologyPopulator()
+        documents = []
+        for features in records:
+            entities = extractor.extract_entities(features)
+            mappings = resolver.resolve_entities(entities, document_id=features["cv_id"])
+            print(f"Reviewing explicit entities and mappings for {features['cv_id']}")
+            reviewed = llm.resolve(features, mappings)
+            audit = reviewed["llm_audit"]
+            if "timing" in audit:
+                print(f"LLM review completed in {audit['timing']['total_seconds']:.2f}s ({audit['calls']} requests)")
+            populated = populator.populate(features, reviewed)
+            documents.append(OntologyDocument(cv_id=features["cv_id"], nodes=populated.nodes))
+        payload = OntologyOutput(resumes=documents).model_dump_json(indent=2)
+
+    # Write only after every resume has completed validation successfully.
+    output.write_text(payload + "\n", encoding="utf-8")
+    print(f"Saved {len(records)} resumes to {output}")
     print(f"Pipeline completed in {perf_counter() - started:.2f}s")
+
 
 if __name__ == "__main__":
     main()
