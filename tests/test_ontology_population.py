@@ -148,7 +148,7 @@ class PopulationTests(unittest.TestCase):
         self.assertEqual(len(list(graph.objects(experience, JM.inRole))), 1)
         employer = next(graph.objects(experience, JM.atOrganization))
         self.assertEqual(result.report["nodes"][str(employer)]["label"], "Example Corp")
-        self.assertAlmostEqual(float(next(graph.objects(experience, JM.yearsExperience))), 52 / 12, places=6)
+        self.assertAlmostEqual(float(next(graph.objects(experience, JM.yearsExperience))), 4.33, places=2)
         self.assertFalse(list(graph.subjects(RDF.type, JM.JobPosting)))
         self.assertEqual(set(Graph().parse(data=graph.serialize(format="turtle"), format="turtle")), set(graph))
         self.assertTrue(all(a["entity_ids"] for a in result.report["assertions"]))

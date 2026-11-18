@@ -82,7 +82,7 @@ class ScopedDurationTests(unittest.TestCase):
 
     def test_each_job_uses_its_own_range_with_no_education_year_fallback(self):
         jobs, result, features = self.populate(["September - Present", "June - August 2025", "May 2024 - Present"])
-        self.assertEqual([j.years_experience for j in jobs], [[], [0.166667], [2.5]])
+        self.assertEqual([j.years_experience for j in jobs], [[], [0.17], [2.5]])
         again, _, _ = self.populate(["September - Present", "June - August 2025", "May 2024 - Present"],
                                     education="Master, January 2023 - December 2026")
         self.assertEqual([j.years_experience for j in jobs], [j.years_experience for j in again])

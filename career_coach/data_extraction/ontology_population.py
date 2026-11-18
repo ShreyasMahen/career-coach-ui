@@ -408,7 +408,7 @@ class OntologyPopulator:
                 node_sources[experience.id]["duration"] = duration
                 date_support = [i for i in dates if duration["start"] <= i["entity"]["start"] < i["entity"]["end"] <= duration["end"]]
                 duration_scope = {"source_field": "section_texts.experience", "start": duration["start"], "end": duration["end"]}
-                assert_value(experience, "years_experience", round(duration["months"] / 12, 6),
+                assert_value(experience, "years_experience", round(duration["months"] / 12, 2),
                              date_support or [title], "employment_calendar_month_difference", duration_scope)
             else:
                 diagnostic("experience_duration_unresolved", support, block=context, reason=duration_reason)
