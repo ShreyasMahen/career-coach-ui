@@ -3,11 +3,20 @@
 This fork adds a browser UI to upstream `matching-agent` at
 `df5021f05dda073821a43aa9d67b14f4266c922d`. The original extraction, matching,
 agent, and evaluation code is unchanged. The additions are the root `ui*` files,
-`test_ui.py`, the separate UI Docker files, and this guide.
+`test_ui.py`, the separate UI Docker files, and this guide. The main
+[README](README.md) starts with the UI quick start and retains the original
+pipeline documentation below it.
 
 ## Run in Docker
 
-From this branch's checkout, with Docker Desktop running:
+Use the **`browser-ui` branch**, with Docker Desktop running:
+
+```sh
+git clone --branch browser-ui https://github.com/ShreyasMahen/career-coach-ui.git
+cd career-coach-ui
+```
+
+Then, from the cloned folder:
 
 ```sh
 docker compose -f compose.ui.yaml up --build -d
@@ -25,7 +34,16 @@ docker compose -f compose.ui.yaml run --rm --no-deps ui python -m unittest test_
 docker compose -f compose.ui.yaml down
 ```
 
-## Run in an existing project Python environment
+## Run without Docker
+
+With Python 3.13+ and uv installed, from the cloned folder:
+
+```sh
+uv sync
+uv run python ui_server.py
+```
+
+If the project's dependencies are already installed in your active Python environment:
 
 ```sh
 python ui_server.py

@@ -1,8 +1,100 @@
-# Career Coach
+# CareerCoach UI
 
-Extract resume data into a populated ontology using GLiNER, O*NET, and constrained LLM review.
+This is the public UI fork of the CareerCoach project. The **`browser-ui` branch**
+contains the browser workspace shown in the demo. Anyone can view or download
+this repository without an invitation. The GitHub link shares the source code;
+the app runs on your own computer after you start it.
 
-## Project structure
+The workspace uses the project's existing matching and agent modules to show
+ranked jobs, documented and missing skills, source evidence, and editable outreach
+drafts. The original extraction, matching, agent, and evaluation code is unchanged.
+
+## Get the UI version
+
+Clone this branch, then run the commands below from the cloned folder:
+
+```sh
+git clone --branch browser-ui https://github.com/ShreyasMahen/career-coach-ui.git
+cd career-coach-ui
+```
+
+Alternatively, [download the UI branch as a ZIP](https://github.com/ShreyasMahen/career-coach-ui/archive/refs/heads/browser-ui.zip),
+unzip it, and open a terminal in the extracted folder.
+
+## Start the UI with Docker
+
+With Docker Desktop installed and running:
+
+```sh
+docker compose -f compose.ui.yaml up --build -d
+```
+
+Open **[http://localhost:8501](http://localhost:8501)** in your browser. The first
+build installs the project dependencies. This separate UI configuration uses CPU
+PyTorch and publishes the app only on your local computer.
+
+To stop the UI:
+
+```sh
+docker compose -f compose.ui.yaml down
+```
+
+## Start the UI without Docker
+
+Docker is optional. With **Python 3.13+ and uv** installed, run:
+
+```sh
+uv sync
+uv run python ui_server.py
+```
+
+Then open **[http://localhost:8501](http://localhost:8501)**. If the project's
+dependencies are already installed in your active Python environment, you can
+instead run `python ui_server.py`. Keep that terminal open while using the UI;
+press Ctrl+C to stop it.
+
+## What to try
+
+1. Start with the included parsed resume and **eight synthetic job postings**.
+2. Search for a skill or location, such as `Python` or `remote`, and select a job.
+3. Review **Why this match** for required/preferred skills and other requirements.
+4. Open **Source evidence** to compare posting text with the normalized graph facts.
+5. Open **Draft outreach**, create a recruiter/referral draft, then edit and copy it.
+6. Use the left panel to upload the project's **parsed resume JSON** or postings
+   **JSONL**. The UI does not parse PDFs directly. Reset returns to the starting data.
+
+The default run needs **no API key, Neo4j service, or downloaded model weights**.
+It uses S2/BM25 ranking, with S1/TF-IDF and S3/skill overlap also available. Chat is
+disabled and outreach uses the existing verified template. Nothing is sent
+automatically. Unknown resume facts remain labeled “not documented.”
+
+For graph-export inputs, real S4–S7 dense retrieval, optional Voyager chat, and
+the mapping between UI actions and the proposal, see [UI-README.md](UI-README.md).
+The current UI reads ontology facts through the existing in-memory matcher;
+live Neo4j query integration is separate work. The full proposal benchmark and
+human evaluation are not established by this demo.
+
+## Run the checks
+
+```sh
+docker compose -f compose.ui.yaml run --rm --no-deps ui python -m unittest discover -s tests -v
+docker compose -f compose.ui.yaml run --rm --no-deps ui python -m unittest test_ui -v
+```
+
+The tested UI implementation passed **143 original tests and 10 UI integration
+tests in Docker**. Those checks use offline fixtures. Real dense models, live
+Voyager responses, and live Neo4j integration were not tested. Without Docker,
+use `uv run python -m unittest discover -s tests -v` and
+`uv run python -m unittest test_ui -v`.
+
+## Original extraction pipeline documentation
+
+The sections below describe the original resume pipeline and matching/agent CLI.
+Its extraction stage populates an ontology using GLiNER, O*NET, and constrained
+LLM review. The Voyager settings below apply to those optional/model-based
+workflows; they are not required for the default browser demo above.
+
+### Project structure
 
 `career_coach/data_extraction/`
 
@@ -13,7 +105,7 @@ Extract resume data into a populated ontology using GLiNER, O*NET, and constrain
 - `ontology.py` generates Pydantic models from `data/ontologies/resume-job.ttl`.
 - `ontology_population.py` populates and validates ontology instances using deterministic rules.
 
-## Quick start
+### Quick start
 
 From the project root:
 
@@ -34,7 +126,7 @@ Place resume PDFs in a `resumes/` folder, then run `main()` through its module:
 uv run python -m career_coach.data_extraction.main resumes
 ```
 
-## Output
+### Output
 
 The pipeline writes only `resumes.json` next to the input folder after all resumes succeed.
 
@@ -49,14 +141,14 @@ All degrees listed in Education are linked, without checking completion status.
 Explicit unmapped skills retain local IDs and an `unresolved` status.
 Intermediate results stay in memory. The pipeline does not write to Neo4j.
 
-## Matching module and career agent
+### Matching module and career agent
 
 `career_coach/matching/` ranks job postings for a parsed resume and explains each match.
 `career_coach/agent/` is a chat assistant on top of it. Both read the parser's output JSON
 directly and use the same O*NET concept IDs, so a resume's `hasSkill` node and a posting's
 required skill are the same node when they name the same concept.
 
-### Setup
+#### Setup
 
 ```powershell
 uv sync --extra matching   # sentence-transformers + faiss-cpu (first run downloads the models)
@@ -66,7 +158,7 @@ Without the extra, use `--embeddings none` (systems S1-S3 only). `--embeddings h
 swaps the Sentence-BERT models for an offline hashing encoder; it is only for checking the
 pipeline, and its numbers are not S4-S7 results.
 
-### Job postings
+#### Job postings
 
 Either use the postings exported by `career_coach.job_ingestion` (GLiNER + O*NET, the same
 graph JSON that goes to Neo4j) by passing that folder as `--jobs`, together with the source
@@ -93,7 +185,7 @@ names). Sentences with "preferred", "nice to have", "a plus" or a "Preferred" he
 preferred skills; about-us and benefits sections are ignored. The TTL has `requiresSkill`
 only, so preferred skills live in the job record, not in the ontology yet.
 
-### Matching (ablation ladder)
+#### Matching (ablation ladder)
 
 ```powershell
 uv run python -m career_coach.matching.cli match --resumes resumes/resumes.json --jobs data/jobs.jsonl --system S7 --top-k 10
@@ -123,7 +215,7 @@ Each result lists matched, similar and missing skills, every ranker's rank and s
 the posting text that matched best, and years/degree requirements ("unknown from resume"
 when the resume does not state them).
 
-### Evaluation
+#### Evaluation
 
 ```powershell
 uv run python -m career_coach.matching.cli pool --resumes resumes/resumes.json --jobs data/jobs.jsonl --out pool.csv
@@ -136,7 +228,7 @@ system found a posting. `evaluate` reports P@5, P@10, MRR and nDCG@10, plus pair
 tests on nDCG@10 against the baseline with Holm correction. `weighted_kappa` in
 `career_coach/matching/evaluation.py` computes agreement on the double-graded subset.
 
-### Chat agent
+#### Chat agent
 
 ```powershell
 uv run python -m career_coach.agent.chat --resumes resumes/resumes.json --jobs data/jobs.jsonl
@@ -154,7 +246,7 @@ never sent. Direct commands work without an LLM: `/search [keywords]`, `/explain
 
 The claim checks only recognize skills in O*NET; a skill O*NET does not list cannot be checked.
 
-### Tests
+#### Tests
 
 ```powershell
 uv run python -m unittest discover -s tests -p "test_*.py"
