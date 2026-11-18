@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import threading
 import unittest
+import pymupdf
 from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
@@ -35,6 +36,17 @@ class UITests(unittest.TestCase):
                 return response.status, json.load(response)
         except HTTPError as response:
             return response.code, json.load(response)
+
+    def upload_pdf(self, content=None, filename='my-resume.pdf', client=None, headers=None):
+        if content is None:
+            content=(Path(__file__).parent/'tests/fixtures/ui_resume.pdf').read_bytes()
+        req=Request(self.base+'/api/resume/pdf',data=content,
+                    headers={'Content-Type':'application/pdf','X-Resume-Filename':filename,**(headers or {})})
+        try:
+            with (client or self.client).open(req) as response:
+                return response.status,json.load(response)
+        except HTTPError as response:
+            return response.code,json.load(response)
 
     def test_search_and_detail_use_the_matching_module(self):
         _, state = self.request('/api/state')
@@ -114,11 +126,78 @@ class UITests(unittest.TestCase):
         self.assertEqual(self.request('/assets/../../ui_server.py')[0],404)
 
     def test_static_assets_are_self_contained(self):
-        for path in ['/', '/assets/ui.js', '/assets/ui.css']:
+        for path in ['/', '/workspace', '/assets/ui.js', '/assets/ui.css',
+                     '/assets/home.js','/assets/home.css','/assets/brand.svg']:
             with self.client.open(self.base+path) as response:
                 self.assertEqual(response.status,200)
                 self.assertIn("script-src 'self'",response.headers['Content-Security-Policy'])
                 self.assertGreater(len(response.read()),100)
+
+    def test_home_page_and_workspace_are_distinct(self):
+        with self.client.open(self.base+'/') as response:
+            home=response.read().decode()
+        with self.client.open(self.base+'/workspace') as response:
+            workspace=response.read().decode()
+        self.assertIn('id="upload-dialog"',home)
+        self.assertIn('id="pdf-upload"',home)
+        self.assertIn('href="/workspace"',home)
+        self.assertIn('id="workspace"',workspace)
+        self.assertNotIn('id="upload-dialog"',workspace)
+        self.assertIn('/assets/brand.svg',home)
+        self.assertIn('/assets/brand.svg',workspace)
+
+    def test_real_pdf_upload_flows_into_matching_and_source_evidence(self):
+        status,state=self.upload_pdf()
+        self.assertEqual(status,200,state)
+        self.assertEqual(state['profile']['cv_id'],'my-resume.pdf')
+        self.assertFalse(state['profile_demo'])
+        self.assertTrue(state['jobs_demo'])
+        self.assertEqual(state['profile_processing']['mode'],'local')
+        self.assertEqual(state['profile_processing']['pages'],1)
+        skills={s['label'] for s in state['profile']['skills']}
+        self.assertTrue({'Python','Docker','React','Structured query language SQL'} <= skills)
+        self.assertIsNone(state['profile']['years_experience'])
+        self.assertEqual(state['profile']['degree_rank'],2)
+        _,detail=self.request('/api/detail?job_id=syn-backend')
+        self.assertIn('Python',detail['matched_required'])
+        self.assertIn('Docker',detail['matched_required'])
+        self.assertIn('Django',detail['explanation']['missing_required'])
+        self.assertTrue(any('Python' in quote for quote in detail['resume_evidence']))
+        self.assertEqual(self.request('/api/state')[1]['profile']['cv_id'],'my-resume.pdf')
+
+    def test_invalid_pdf_preserves_previous_profile(self):
+        self.upload_pdf()
+        _,before=self.request('/api/state')
+        self.assertEqual(self.upload_pdf(b'not a PDF')[0],400)
+        self.assertEqual(self.upload_pdf(b'%PDF-1.7\nbroken file')[0],400)
+        self.assertEqual(self.request('/api/state')[1],before)
+
+    def test_image_only_pdf_and_password_protection_have_clear_errors(self):
+        with pymupdf.open() as doc:
+            doc.new_page()
+            blank=doc.tobytes()
+            locked=doc.tobytes(encryption=pymupdf.PDF_ENCRYPT_AES_256,user_pw='test-password')
+        status,result=self.upload_pdf(blank)
+        self.assertEqual(status,400)
+        self.assertIn('selectable',result['error'])
+        status,result=self.upload_pdf(locked)
+        self.assertEqual(status,400)
+        self.assertIn('password-protected',result['error'])
+
+    def test_pdf_upload_is_session_local_and_resettable(self):
+        other=build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        self.request('/api/state')
+        self.upload_pdf()
+        self.assertTrue(self.request('/api/state',client=other)[1]['profile_demo'])
+        _,state=self.request('/api/reset',{})
+        self.assertTrue(state['profile_demo'])
+        self.assertIsNone(state['profile_processing'])
+
+    def test_pdf_type_origin_and_filename_validation(self):
+        self.assertEqual(self.upload_pdf(headers={'Content-Type':'text/plain'})[0],415)
+        self.assertEqual(self.upload_pdf(headers={'Origin':'https://example.com'})[0],403)
+        self.assertEqual(self.upload_pdf(filename='resume.exe')[0],400)
+        self.assertEqual(self.upload_pdf(filename='..%2Fmy-resume.pdf')[1]['profile']['cv_id'],'my-resume.pdf')
 
 
 if __name__=='__main__':

@@ -5,6 +5,8 @@ contains the browser workspace shown in the demo. Anyone can view or download
 this repository without an invitation. The GitHub link shares the source code;
 the app runs on your own computer after you start it.
 
+The home page accepts a resume PDF and opens the matching workspace after parsing.
+You can also open `/workspace` directly to explore the included demo.
 The workspace uses the project's existing matching and agent modules to show
 ranked jobs, documented and missing skills, source evidence, and editable outreach
 drafts. The original extraction, matching, agent, and evaluation code is unchanged.
@@ -55,18 +57,32 @@ press Ctrl+C to stop it.
 
 ## What to try
 
-1. Start with the included parsed resume and **eight synthetic job postings**.
+1. On the home page, choose **Upload your resume**, then select or drop a PDF.
+   Use selectable text, a file under 6 MB, and at most 30 pages. After parsing,
+   the matching workspace opens with your extracted profile. For a fictional
+   test resume, use `tests/fixtures/ui_resume.pdf`.
+   Or choose **Explore the workspace** to use the included parsed resume and
+   **eight synthetic job postings**.
 2. Search for a skill or location, such as `Python` or `remote`, and select a job.
 3. Review **Why this match** for required/preferred skills and other requirements.
 4. Open **Source evidence** to compare posting text with the normalized graph facts.
 5. Open **Draft outreach**, create a recruiter/referral draft, then edit and copy it.
-6. Use the left panel to upload the project's **parsed resume JSON** or postings
-   **JSONL**. The UI does not parse PDFs directly. Reset returns to the starting data.
+6. Use **Upload a new resume PDF** to return to the upload dialog. The left panel
+   also accepts the project's **parsed resume JSON** and postings **JSONL**.
+   Reset returns to the starting data.
 
 The default run needs **no API key, Neo4j service, or downloaded model weights**.
 It uses S2/BM25 ranking, with S1/TF-IDF and S3/skill overlap also available. Chat is
 disabled and outreach uses the existing verified template. Nothing is sent
 automatically. Unknown resume facts remain labeled “not documented.”
+
+PDF uploads default to the original parser's **local explicit rules**, taxonomy
+mapping, and validated ontology population. This mode recognizes explicit skills
+lists and supported degree labels; it does not run GLiNER or infer missing
+employment facts. Review the extracted profile. Scanned, password-protected,
+and unreadable PDFs show a clear error while preserving your previous profile.
+The uploaded PDF is removed after parsing; extracted facts remain in the local
+session. See [UI-README.md](UI-README.md) for the optional full extraction mode.
 
 For graph-export inputs, real S4–S7 dense retrieval, optional Voyager chat, and
 the mapping between UI actions and the proposal, see [UI-README.md](UI-README.md).
@@ -81,8 +97,10 @@ docker compose -f compose.ui.yaml run --rm --no-deps ui python -m unittest disco
 docker compose -f compose.ui.yaml run --rm --no-deps ui python -m unittest test_ui -v
 ```
 
-The tested UI implementation passed **143 original tests and 10 UI integration
-tests in Docker**. Those checks use offline fixtures. Real dense models, live
+The tested UI implementation passed **143 original tests and 16 UI integration
+tests in Docker**. The UI checks include a real PDF flowing into matching and
+source evidence, invalid/encrypted PDFs, and session isolation. Those checks use
+offline fixtures. Full GLiNER/Voyager PDF extraction, real dense models, live
 Voyager responses, and live Neo4j integration were not tested. Without Docker,
 use `uv run python -m unittest discover -s tests -v` and
 `uv run python -m unittest test_ui -v`.

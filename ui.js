@@ -58,6 +58,11 @@
     const profile = workspace.profile;
     $('resume-name').textContent = profile.cv_id;
     $('profile-count').textContent = `${profile.skills.length} extracted skills`;
+    const processing = workspace.profile_processing;
+    $('profile-processing').hidden = !processing;
+    $('profile-processing').textContent = processing
+      ? processing.warnings.length ? processing.warnings.join('. ') : 'Resume loaded. Review the extracted facts before using your matches.'
+      : '';
     $('profile-picker').replaceChildren(...workspace.profiles.map(p => {
       const option = el('option','',p.cv_id); option.value = p.index; return option;
     }));

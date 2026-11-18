@@ -24,6 +24,7 @@ from career_coach.matching.embeddings import MINILM, MPNET
 from career_coach.matching.profiles import load_any_jobs, load_jobs, load_resumes
 from career_coach.matching.skills import SkillExtractor
 from career_coach.matching.taxonomy import Taxonomy
+from ui_pdf import MAX_PDF_BYTES, PDFResumeParser
 
 ROOT = Path(__file__).resolve().parent
 FIXTURES = ROOT / "tests/fixtures"
@@ -63,6 +64,7 @@ class Workspace:
         self.profile_demo = app.profile_demo
         self.jobs_demo = app.jobs_demo
         self.catalog_name = app.catalog_name
+        self.profile_processing = None
         self.revision = 0
         self.reset_tools(app.profile_index, app.args.system)
 
@@ -82,7 +84,20 @@ class Workspace:
                 "catalog_name": self.catalog_name, "catalog_size": len(self.matcher.jobs),
                 "systems": [{"id": s, "name": SYSTEM_NAMES[s]} for s in self.matcher.available_systems()],
                 "system": self.system, "chat_enabled": bool(self.agent), "revision": self.revision,
-                "graph_mode": "Ontology facts from the matching module (in memory)"}
+                "graph_mode": "Ontology facts from the matching module (in memory)",
+                "pdf_mode": self.app.args.pdf_mode, "profile_processing": self.profile_processing}
+
+    def upload_pdf(self, content, filename):
+        with self.app.pdf_lock:
+            document, processing = self.app.pdf_parser.parse(content, filename)
+        profiles = parse_upload(document, lambda p: load_resumes(p, self.app.taxonomy), ".json")
+        if not profiles[0].skills:
+            processing["warnings"].append(
+                "No explicit skills were identified. Try a clearly labeled Skills section or load parsed resume JSON")
+        self.profiles, self.profile_demo = profiles, False
+        self.profile_processing = processing
+        self.reset_tools(0)
+        return self.state()
 
     def detail(self, job_id):
         match = self.matcher.explain(self.tools.resume, job_id, self.system)
@@ -113,6 +128,7 @@ class Workspace:
                 if len(profiles) > 100:
                     raise ValueError("Upload at most 100 profiles")
                 self.profiles, self.profile_demo = profiles, False
+                self.profile_processing = None
                 self.reset_tools(0)
             else:
                 index = data.get("index")
@@ -140,6 +156,7 @@ class Workspace:
             self.profiles, self.matcher = self.app.profiles, self.app.matcher
             self.profile_demo, self.jobs_demo = self.app.profile_demo, self.app.jobs_demo
             self.catalog_name = self.app.catalog_name
+            self.profile_processing = None
             self.reset_tools(self.app.profile_index, self.app.args.system)
             return self.state()
         if path == "/api/chat":
@@ -158,6 +175,8 @@ class Application:
         self.taxonomy = Taxonomy()
         self.extractor = SkillExtractor(self.taxonomy)
         self.verifier = ClaimVerifier(self.extractor)
+        self.pdf_parser = PDFResumeParser(self.taxonomy, args.pdf_mode)
+        self.pdf_lock = threading.Lock()
         self.profiles = load_resumes(args.resumes, self.taxonomy)
         if not self.profiles:
             raise ValueError("No parsed resumes were found")
@@ -224,8 +243,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urlsplit(self.path)
-        static = {"/": ("ui.html", "text/html"), "/assets/ui.css": ("ui.css", "text/css"),
-                  "/assets/ui.js": ("ui.js", "text/javascript")}
+        static = {"/": ("home.html", "text/html"), "/workspace": ("ui.html", "text/html"),
+                  "/workspace/": ("ui.html", "text/html"),
+                  "/assets/ui.css": ("ui.css", "text/css"), "/assets/ui.js": ("ui.js", "text/javascript"),
+                  "/assets/home.css": ("home.css", "text/css"), "/assets/home.js": ("home.js", "text/javascript"),
+                  "/assets/brand.svg": ("brand.svg", "image/svg+xml")}
         if url.path in static:
             name, mime = static[url.path]
             return self.respond(200, (ROOT / name).read_bytes(), mime + "; charset=utf-8")
@@ -246,6 +268,8 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin and origin != f"http://{self.headers.get('Host')}":
             return self.respond(403, {"error": "Use this app's own browser tab"})
+        if urlsplit(self.path).path == "/api/resume/pdf":
+            return self.upload_pdf()
         if self.headers.get_content_type() != "application/json":
             return self.respond(415, {"error": "Send application/json"})
         try:
@@ -268,6 +292,23 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             self.respond(500, {"error": "The request could not be completed. Your previous workspace is still available."})
 
+    def upload_pdf(self):
+        if self.headers.get_content_type() != "application/pdf":
+            return self.respond(415, {"error": "Choose a PDF resume"})
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= MAX_PDF_BYTES:
+                return self.respond(413, {"error": "Choose a PDF under 6 MB"})
+            content = self.rfile.read(length)
+            token, workspace, fresh = self.server.app.session(self.headers.get("Cookie"))
+            with workspace.lock:
+                result = workspace.upload_pdf(content, self.headers.get("X-Resume-Filename", "resume.pdf"))
+            self.respond(200, result, cookie=token if fresh else None)
+        except (ValueError, TypeError) as error:
+            self.respond(400, {"error": str(error)})
+        except Exception:
+            self.respond(500, {"error": "The PDF could not be processed. Try another copy or upload parsed resume JSON in the workspace"})
+
 
 def arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
@@ -285,6 +326,8 @@ def arguments(argv=None):
     parser.add_argument("--depth", type=int, default=100)
     parser.add_argument("--cache-dir", type=Path, default=Path(".cache/embeddings"))
     parser.add_argument("--llm", action="store_true", help="Enable Voyager chat and generated drafts")
+    parser.add_argument("--pdf-mode", choices=("local", "full"), default="local",
+                        help="PDF extraction: local explicit rules, or full GLiNER + Voyager pipeline")
     return parser.parse_args(argv)
 
 

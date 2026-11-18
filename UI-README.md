@@ -2,8 +2,9 @@
 
 This fork adds a browser UI to upstream `matching-agent` at
 `df5021f05dda073821a43aa9d67b14f4266c922d`. The original extraction, matching,
-agent, and evaluation code is unchanged. The additions are the root `ui*` files,
-`test_ui.py`, the separate UI Docker files, and this guide. The main
+agent, and evaluation code is unchanged. The additions are the root `ui*` and
+`home.*` files, the whistle `brand.svg`, a fictional PDF fixture, `test_ui.py`,
+the separate UI Docker files, and this guide. The main
 [README](README.md) starts with the UI quick start and retains the original
 pipeline documentation below it.
 
@@ -22,9 +23,11 @@ Then, from the cloned folder:
 docker compose -f compose.ui.yaml up --build -d
 ```
 
-Open http://localhost:8501. It starts with the upstream parsed resume fixture
-and eight **synthetic** job postings. No API key, Neo4j server, or model download
-is needed for this demo. The image uses CPU PyTorch rather than the CUDA wheels
+Open http://localhost:8501 for the home page and PDF upload dialog. A successful
+upload opens `/workspace` with that resume's extracted facts. **Explore the
+workspace** opens the upstream parsed resume fixture and eight **synthetic** job
+postings on a fresh session. No API key, Neo4j server, or model download is needed
+for the default demo or local PDF parsing. The image uses CPU PyTorch rather than the CUDA wheels
 in the upstream Linux lock. It does not change `pyproject.toml` or `uv.lock`.
 The port is published only on the local machine.
 
@@ -55,9 +58,33 @@ no framework dependency or CDN script.
 
 ## Use real project output
 
+The home page accepts a **PDF under 6 MB**, up to 30 pages, with selectable text.
+The default `--pdf-mode local` adapts the existing `ResumeParser.run`, explicit
+entity rules, `TaxonomyResolver`, and `OntologyPopulator` into the same ontology
+JSON consumed by `load_resumes`. It makes no GLiNER or LLM calls. This conservative
+mode uses explicit skills lists and supported degree labels; employment details
+may remain unknown. A note asks users to review their extracted facts, and a
+warning appears if no explicit skills were found. The fictional fixture
+`tests/fixtures/ui_resume.pdf` is provided for a complete upload demo.
+
+For the original full GLiNER + Voyager extraction sequence, configure the same
+Voyager environment settings used by the original pipeline, then run:
+
+```sh
+python ui_server.py --pdf-mode full
+```
+
+Full mode downloads GLiNER weights on first use and sends extracted resume
+context to the configured Voyager endpoint. `--llm` separately enables chat and
+model-generated outreach. Full PDF mode is optional and was not tested with a live
+model or credentials in the local checks. The upload UI rejects scanned PDFs
+without selectable text, locked files, invalid files, and oversized files; it
+does not add OCR or password entry. The PDF adapter preserves the previous
+profile if parsing fails. PDF bytes are held only during processing and temporary
+files are removed afterward.
+
 Upload the parser's JSON (`{"resumes": [{"cv_id": "...", "nodes": [...]}]}`)
 in the left panel. If it contains multiple resumes, choose the active one.
-This is a viewer of **parsed output**; PDF parsing remains in the original pipeline.
 Load postings JSONL with `job_id`, `title`, `description`, and optional `company`,
 `location`, `url`, `source`, and the matcher's structured skill fields.
 Uploads are kept in memory for that browser session, expire after two hours of
@@ -83,6 +110,7 @@ The page consumes the existing `AssistantTools` and `Matcher` results:
 
 | UI action | Existing code used |
 |---|---|
+| PDF upload | `ResumeParser`, explicit extraction rules, taxonomy resolver, ontology populator, and `load_resumes`; optional full GLiNER/Voyager sequence |
 | Recommendations and keyword search | `AssistantTools.search_jobs` |
 | Required/preferred skill coverage, near misses and unknown requirements | `Matcher.explain`, `AssistantTools.explain_match` and `skill_gap` |
 | Source evidence | Original posting description, parser evidence excerpts, and separately labeled normalized context facts |
