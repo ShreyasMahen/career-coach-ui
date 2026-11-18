@@ -219,3 +219,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Raw downloaded datasets (Kaggle resume PDFs/CSV); not committed
+career_coach/knowledge_graph/data/raw/resume-dataset/pdfs/
+
+.DS_Store
