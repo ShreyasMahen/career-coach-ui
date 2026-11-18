@@ -17,6 +17,7 @@ uv run --with neo4j python -m career_coach.knowledge_graph.validate_graph
 ```
 
 ## Option B: rebuild the graph
+First Neo4j has to been from your Desktop machine, start any new instance
 
 ```bash
 uv run --with neo4j python -m career_coach.knowledge_graph.load_neo4j career_coach/knowledge_graph/data/raw/resume-dataset/demo.json
