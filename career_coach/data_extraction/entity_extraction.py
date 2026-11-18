@@ -10,6 +10,66 @@ import re
 
 
 class EntityExtractor:
+    DEGREE_ABBREVIATIONS = re.compile(
+        r"(?<!\w)(?:[bm]\.[sa]\.?(?!\w)|ph\.?d\.?(?!\w)|(?:bsc|msc|bs|ba|ms|ma|(?-i:AA|AS|AAS))\b)", re.I)
+
+    @staticmethod
+    def explicit_entities(sections):
+        """Seed explicit lists/degree abbreviations, retaining exact section spans."""
+        texts = sections.get("section_texts", sections)
+        entities = []
+        def add(section, start, end, label, category, index):
+            entities.append({"text": texts[section][start:end], "start": start, "end": end,
+                             "label": label, "section": section, "category": category,
+                             "block_index": index, "source_field": f"section_texts.{section}" if "section_texts" in sections else section,
+                             "score": None, "method": "explicit_rules", "extraction_sources": ["rules"]})
+        skills = texts.get("skills", "")
+        for index, match in enumerate(re.finditer(r"[^,;\n|•]+", skills)):
+            raw = match[0]
+            prefix = re.match(r"\s*(?:[-*]\s+)?(?:(?:(?:technical\s+)?skills?|programming\s+languages?|languages?|frameworks?(?:\s*[/&]\s*tools?)?|libraries|tools?|technologies|cloud\s+platforms?)\s*:\s*)?", raw, re.I)
+            start = match.start() + prefix.end()
+            end = match.end() - (len(raw) - len(raw.rstrip()))
+            value = skills[start:end]
+            if not value or re.search(r"https?://|www\.", value, re.I):
+                continue
+            # Split only explicit, known composite lists; preserve other slashes.
+            if re.fullmatch(r"C\s*/\s*C\+\+|HTML\s*/\s*CSS", value, re.I):
+                for part in re.finditer(r"[^/\s]+", value):
+                    add("skills", start + part.start(), start + part.end(), "technical skill", "skills", index)
+            else:
+                add("skills", start, end, "technical skill", "skills", index)
+        education = texts.get("education", "")
+        for index, block in enumerate(sections.get("education_refined", {}).get("degree_entries", [])):
+            if education[block["start"]:block["end"]] != block["text"]:
+                raise ValueError("Education block does not match source text")
+            # Degree abbreviations belong in the entry heading, not coursework/prose.
+            heading = block["text"].splitlines()[0] if block["text"] else ""
+            for match in EntityExtractor.DEGREE_ABBREVIATIONS.finditer(heading):
+                add("education", block["start"] + match.start(), block["start"] + match.end(), "degree", "degree_entries", index)
+        return entities
+
+    @staticmethod
+    def merge_entities(seeds, predictions):
+        merged = [dict(entity) for entity in seeds]
+        for prediction in predictions:
+            if prediction["section"] == "skills" and sum(
+                    e["section"] == "skills" and prediction["start"] <= e["start"] < e["end"] <= prediction["end"]
+                    for e in seeds) > 1:
+                continue  # Do not reintroduce an aggregate over explicit list items.
+            matches = [e for e in merged if e["section"] == prediction["section"]
+                       and e["start"] == prediction["start"]
+                       and e["text"].rstrip(".").casefold() == prediction["text"].rstrip(".").casefold()]
+            if not matches:
+                merged.append({**prediction, "extraction_sources": ["gliner"]})
+                continue
+            entity = matches[0]
+            entity["extraction_sources"] = sorted(set(entity.get("extraction_sources", [])) | {"gliner"})
+            if entity["label"] == "technical skill" and prediction["label"] in TaxonomyResolver.SKILL_LABELS:
+                entity["label"] = prediction["label"]
+            elif entity["label"] != prediction["label"]:
+                entity["classification_conflicts"] = sorted(set(entity.get("classification_conflicts", [])) | {prediction["label"]})
+        return sorted(merged, key=lambda e: (e["section"], e["start"], e["end"], e["label"]))
+
     def __init__(self, model_name="urchade/gliner_small-v2.1", threshold=0.5, *, model=None):
         self.model_name = model_name
         self.threshold = threshold
@@ -45,6 +105,7 @@ class EntityExtractor:
                 break
 
     def extract_entities(self, sections: dict) -> list:
+        seeds = self.explicit_entities(sections)
         # Load once per extractor instance, then reuse across resumes and sections.
         if self._entity_model is None:
             from gliner import GLiNER
@@ -76,9 +137,7 @@ class EntityExtractor:
                         key = (section, start, end, prediction["label"])
                         if key not in unique or entity["score"] > unique[key]["score"]:
                             unique[key] = entity
-        entities = list(unique.values())
-
-        return entities
+        return self.merge_entities(seeds, list(unique.values()))
 
 
 class TaxonomyResolver:

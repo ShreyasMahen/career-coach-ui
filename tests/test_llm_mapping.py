@@ -299,3 +299,17 @@ class LLMMappingTests(unittest.TestCase):
         for request in requests:
             if request["task"] == "review_explicit_entities":
                 self.assertNotIn(resolved_id, json.dumps(request))
+
+    def test_only_documented_conflicts_make_resolved_entities_reviewable(self):
+        item = self.baseline_item("Python")
+        item["entity"]["classification_conflicts"] = ["organization"]
+        requests = []
+        def requester(request):
+            requests.append(request)
+            return self.requester(request)
+        result = self.resolve(requester)
+        skills_request = next(r for r in requests if r["task"] == "review_explicit_entities" and r["chunk"]["section"] == "skills")
+        self.assertEqual(skills_request["eligible_entities"][0]["entity_id"], item["entity_id"])
+        self.assertEqual(skills_request["eligible_entities"][0]["entity"]["classification_conflicts"], ["organization"])
+        revised = next(i for i in result["entity_mappings"]["resolved"] if i["entity"]["text"] == "Python")
+        self.assertNotIn("classification_conflicts", revised["entity"])

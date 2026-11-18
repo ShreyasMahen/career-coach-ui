@@ -143,35 +143,35 @@ class PopulationTests(unittest.TestCase):
         self.assertEqual((self.features, self.reviewed), before)
         graph = result.graph
         person = next(graph.subjects(RDF.type, JM.Person))
-        self.assertEqual(len(list(graph.objects(person, JM.hasSkill))), 1)
+        self.assertEqual(len(list(graph.objects(person, JM.hasSkill))), 2)
         experience = next(graph.objects(person, JM.hasExperience))
         self.assertEqual(len(list(graph.objects(experience, JM.inRole))), 1)
         employer = next(graph.objects(experience, JM.atOrganization))
         self.assertEqual(result.report["nodes"][str(employer)]["label"], "Example Corp")
-        self.assertFalse(list(graph.objects(experience, JM.yearsExperience)))
+        self.assertAlmostEqual(float(next(graph.objects(experience, JM.yearsExperience))), 52 / 12, places=6)
         self.assertFalse(list(graph.subjects(RDF.type, JM.JobPosting)))
         self.assertEqual(set(Graph().parse(data=graph.serialize(format="turtle"), format="turtle")), set(graph))
         self.assertTrue(all(a["entity_ids"] for a in result.report["assertions"]))
 
-    def test_negated_unresolved_and_non_skills_section_mentions_do_not_add_skills(self):
+    def test_negated_and_non_skills_mentions_are_excluded_but_unmapped_skills_survive(self):
         result = self.populate()
         skills = list(result.graph.subjects(RDF.type, JM.Skill))
-        self.assertEqual(len(skills), 1)
+        self.assertEqual(len(skills), 2)
         self.assertEqual(result.report["nodes"][str(skills[0])]["taxonomy"]["id"], "python")
         codes = {d["code"] for d in result.report["diagnostics"]}
         self.assertIn("negated_or_uncertain_skill", codes)
-        self.assertIn("no_supported_canonical_mapping", codes)
+        self.assertIn("explicit_skill_retained_without_taxonomy", codes)
         self.assertIn("skill_usage_relationship_not_established", codes)
         self.assertEqual(len(result.report["nodes"][str(skills[0])]["entity_ids"]), 2)
 
-    def test_degrees_normalize_but_only_explicit_completion_establishes_holding(self):
+    def test_all_listed_degrees_normalize_and_link_regardless_of_completion(self):
         result = self.populate()
         person = next(result.graph.subjects(RDF.type, JM.Person))
         degrees = list(result.graph.subjects(RDF.type, JM.Degree))
         self.assertEqual(len(degrees), 2)
         held = list(result.graph.objects(person, JM.holdsDegree))
-        self.assertEqual(len(held), 1)
-        self.assertEqual(result.report["nodes"][str(held[0])]["label"], "B.S.")
+        self.assertEqual(len(held), 2)
+        self.assertEqual({result.report["nodes"][str(identity)]["label"] for identity in held}, {"B.S.", "M.S."})
         for degree in degrees:
             level = next(result.graph.objects(degree, JM.degreeLevel))
             self.assertIn(int(next(result.graph.objects(level, JM.rank))), (2, 3))
@@ -296,14 +296,14 @@ class PopulationTests(unittest.TestCase):
         self.reviewed["entity_mappings"]["resolved"][0]["mapping"]["source_version"] = "32.0"
         changed = self.populate()
         self.assertEqual(first.report["document_id"], changed.report["document_id"])
-        self.assertEqual(len(list(changed.graph.subjects(RDF.type, JM.Skill))), 2)
+        self.assertEqual(len(list(changed.graph.subjects(RDF.type, JM.Skill))), 3)
 
     def test_incomplete_canonical_mapping_is_not_used(self):
         for item in self.reviewed["entity_mappings"]["resolved"]:
             if item["entity"]["text"] == "Python":
                 item["mapping"].pop("namespace")
         result = self.populate()
-        self.assertFalse(list(result.graph.subjects(RDF.type, JM.Skill)))
+        self.assertEqual([n.metadata.label for n in result.nodes if n.rdf_type == str(JM.Skill)], ["Node.js"])
 
     def test_evidence_is_preserved_for_every_input_mention(self):
         result = self.populate()
@@ -311,19 +311,47 @@ class PopulationTests(unittest.TestCase):
         self.assertEqual(set(result.report["evidence"]), input_ids)
         self.assertIn("not_applicable", {i["status"] for i in result.report["evidence"].values()})
 
-    def test_past_dates_alone_do_not_assert_graduation(self):
-        # Preserve offsets while removing the explicit completion cue.
+    def test_degree_links_do_not_require_completion_wording(self):
+        # Preserve offsets while removing completion wording.
         text = self.features["section_texts"]["education"].replace("Earned", "Degree")
         self.features["section_texts"]["education"] = text
         for block in self.features["education_refined"]["degree_entries"]:
             block["text"] = text[block["start"]:block["end"]]
         result = self.populate()
-        self.assertFalse(list(result.graph.triples((None, JM.holdsDegree, None))))
+        self.assertEqual(len(list(result.graph.triples((None, JM.holdsDegree, None)))), 2)
+
+    def test_multiple_degrees_in_one_entry_are_all_linked(self):
+        text = self.features["section_texts"]["education"]
+        self.features["education_refined"]["degree_entries"] = [{"start": 0, "end": len(text), "text": text}]
+        result = self.populate()
+        self.assertEqual(len(list(result.graph.triples((None, JM.holdsDegree, None)))), 2)
+
+    def test_degree_links_survive_missing_refined_entries_and_unknown_level(self):
+        self.features.pop("education_refined")
+        text = self.features["section_texts"]["education"]
+        self.features["section_texts"]["education"] = text + "\nProfessional Certificate"
+        self.add("education", "Professional Certificate", "degree")
+        result = self.populate()
+        self.assertEqual(len(list(result.graph.triples((None, JM.holdsDegree, None)))), 3)
+        self.assertIn("unknown_degree_level", {d["code"] for d in result.report["diagnostics"]})
 
     def test_documents_share_only_canonical_concepts(self):
         first = self.populate()
         self.features["cv_id"] = self.reviewed["cv_id"] = "another.pdf"
         second = self.populate()
-        self.assertEqual(set(first.graph.subjects(RDF.type, JM.Skill)), set(second.graph.subjects(RDF.type, JM.Skill)))
+        canonical = lambda result: {n.id for n in result.nodes if n.rdf_type == str(JM.Skill) and n.metadata.resolution_status == "resolved"}
+        local = lambda result: {n.id for n in result.nodes if n.rdf_type == str(JM.Skill) and n.metadata.resolution_status == "unresolved"}
+        self.assertEqual(canonical(first), canonical(second))
+        self.assertTrue(local(first).isdisjoint(local(second)))
         self.assertNotEqual(set(first.graph.subjects(RDF.type, JM.Person)), set(second.graph.subjects(RDF.type, JM.Person)))
         self.assertNotEqual(set(first.graph.subjects(RDF.type, JM.Organization)), set(second.graph.subjects(RDF.type, JM.Organization)))
+
+    def test_unmapped_skill_serializes_without_fabricated_taxonomy(self):
+        result = self.populate()
+        data = json.loads(OntologyDocument(cv_id="example.pdf", nodes=result.nodes).model_dump_json())
+        local = next(n for n in data["nodes"] if n["metadata"].get("label") == "Node.js")
+        self.assertEqual(local["metadata"]["resolution_status"], "unresolved")
+        self.assertNotIn("taxonomy", local["metadata"])
+        self.assertIn(":local-skill:", local["id"])
+        person = next(n for n in data["nodes"] if n["type"].endswith("#Person"))
+        self.assertIn(local["id"], person["hasSkill"])

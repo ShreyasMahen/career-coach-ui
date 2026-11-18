@@ -7,7 +7,7 @@ an LLM. Object properties hold node IRIs; validate_instances checks their target
 
 import re
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SerializeAsAny, create_model, field_serializer
 from rdflib import Graph, RDF, RDFS, OWL, XSD, URIRef
@@ -36,6 +36,24 @@ class SourceEvidence(BaseModel):
     end: int = Field(gt=0)
     text: str
     label: str
+    extraction_sources: list[str] = Field(default_factory=list)
+    classification_conflicts: list[str] = Field(default_factory=list)
+
+
+class EmploymentDuration(BaseModel):
+    """Month-precision derivation using only one employment header's source text."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    start_month: str = Field(pattern=r"^\d{4}-(?:0[1-9]|1[0-2])$")
+    end_month: str = Field(pattern=r"^\d{4}-(?:0[1-9]|1[0-2])$")
+    as_of_month: str = Field(pattern=r"^\d{4}-(?:0[1-9]|1[0-2])$")
+    months: int = Field(ge=0)
+    ongoing: bool
+    method: Literal["calendar_month_difference"] = "calendar_month_difference"
+    source_field: Literal["section_texts.experience"] = "section_texts.experience"
+    start: int = Field(ge=0)
+    end: int = Field(gt=0)
+    text: str
 
 
 class NodeMetadata(BaseModel):
@@ -45,6 +63,9 @@ class NodeMetadata(BaseModel):
     label: str | None = None
     taxonomy: TaxonomyReference | None = None
     original_title: str | None = None
+    resolution_status: Literal["resolved", "unresolved"] | None = None
+    resolution_reason: str | None = None
+    duration: EmploymentDuration | None = None
     evidence: list[SourceEvidence] = Field(default_factory=list)
 
 

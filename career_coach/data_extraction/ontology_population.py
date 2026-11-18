@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from datetime import date
 
 from rdflib import Graph, Literal, RDF, URIRef
 
@@ -15,7 +16,7 @@ from .entity_extraction import TaxonomyResolver
 from .ontology import NodeMetadata, OntologyNode, load_ontology
 
 
-POPULATION_VERSION = "explicit-population-v3"
+POPULATION_VERSION = "explicit-population-v6"
 # A small, versioned policy, not a universal ordering of all credentials.
 DEGREE_LEVELS = {
     "associate": (1, {"aa", "as", "aas", "associate", "associate degree", "associate of science", "associate of arts"}),
@@ -26,7 +27,65 @@ DEGREE_LEVELS = {
 UNCERTAIN = re.compile(
     r"\b(?:no|not|without|lack\w*|unfamiliar|never|learning|hypothetical|"
     r"expected|anticipated|pursuing|candidate|incomplete|unfinished|required|preferred)\b|\bin progress\b", re.I)
-COMPLETED = re.compile(r"\b(?:earned|awarded|completed|received)\s*:?\s+(?:(?:an?|the)\s+)?$", re.I)
+
+MONTHS = {name: number for number, name in enumerate(
+    ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"), 1)}
+MONTHS.update({name[:3]: number for name, number in list(MONTHS.items())})
+MONTHS["sept"] = 9
+MONTH_NAME = "(?:" + "|".join(sorted(MONTHS, key=len, reverse=True)) + r")\.?"
+MONTH_ENDPOINT = (rf"(?:\d{{4}}[-/](?:0[1-9]|1[0-2])|(?:0?[1-9]|1[0-2])/\d{{4}}|"
+                  rf"{MONTH_NAME}(?:\s+\d{{4}})?|\d{{4}})")
+EMPLOYMENT_RANGE = re.compile(
+    rf"(?<![\w/])(?P<start>{MONTH_ENDPOINT})\s*(?:[-–—\ufffd]|\bto\b)\s*"
+    rf"(?P<end>present|current|now|ongoing|{MONTH_ENDPOINT})(?![\w/])", re.I)
+
+
+def _month_endpoint(text):
+    text = text.casefold().strip()
+    numeric = re.fullmatch(r"(\d{4})[-/](\d{1,2})", text)
+    if numeric:
+        return int(numeric[1]), int(numeric[2])
+    numeric = re.fullmatch(r"(\d{1,2})/(\d{4})", text)
+    if numeric:
+        return int(numeric[2]), int(numeric[1])
+    named = re.fullmatch(rf"({MONTH_NAME})(?:\s+(\d{{4}}))?", text)
+    if named:
+        return int(named[2]) if named[2] else None, MONTHS[named[1].rstrip(".")]
+    return int(text), None  # A bare year has insufficient month precision.
+
+
+def employment_duration(header, section_start, as_of):
+    """Calculate one header range. No access to education or other employment.
+
+    A sole explicit year applies to both named months in the same range. Missing
+    years with Present, bare years, reversed/future ranges and ambiguity abstain.
+    End-month minus start-month is used, without inclusive-month rounding.
+    """
+    ranges = list(EMPLOYMENT_RANGE.finditer(header))
+    if len(ranges) != 1:
+        return None, "ambiguous_date_ranges" if ranges else "no_month_range"
+    match = ranges[0]
+    start_year, start_month = _month_endpoint(match["start"])
+    ongoing = match["end"].casefold() in {"present", "current", "now", "ongoing"}
+    end_year, end_month = (as_of.year, as_of.month) if ongoing else _month_endpoint(match["end"])
+    if not ongoing:
+        start_year = start_year if start_year is not None else end_year
+        end_year = end_year if end_year is not None else start_year
+    if start_year is None or end_year is None:
+        return None, "missing_year"
+    if start_month is None or end_month is None:
+        return None, "missing_month_precision"
+    start = start_year * 12 + start_month
+    end = end_year * 12 + end_month
+    if end < start:
+        return None, "reversed_date_range"
+    if start_year < 1 or end > as_of.year * 12 + as_of.month:
+        return None, "future_or_invalid_date_range"
+    return {"start_month": f"{start_year:04d}-{start_month:02d}",
+            "end_month": f"{end_year:04d}-{end_month:02d}",
+            "as_of_month": as_of.strftime("%Y-%m"), "months": end - start, "ongoing": ongoing,
+            "start": section_start + match.start(), "end": section_start + match.end(),
+            "text": match[0]}, None
 
 
 def _digest(value):
@@ -171,6 +230,8 @@ def _header_end(block, mentions=()):
         boundary = end
         for next_start, next_end, next_raw in rows[index + 1:]:
             leftover = _mask(next_raw, next_start, mentions, {"date", "location", "organization", "job title"})
+            # Date ranges remain explicit header evidence even if NER missed them.
+            leftover = EMPLOYMENT_RANGE.sub(" ", leftover)
             leftover = re.sub(r"\b(?:present|current|to|location|dates?|employer|company|organization|client|customer|vendor|partner|agency|recruiter)\b", "", leftover, flags=re.I)
             if re.search(r"\w", leftover):
                 break
@@ -187,8 +248,9 @@ class PopulatedOntology:
 
 
 class OntologyPopulator:
-    def __init__(self, schema=None):
+    def __init__(self, schema=None, *, as_of: date | None = None):
         self.schema = schema if schema is not None else load_ontology()
+        self.as_of = as_of if as_of is not None else date.today()
 
     def populate(self, features: dict, reviewed: dict) -> PopulatedOntology:
         """Populate one resume from final LLM output and matching parsed features.
@@ -264,6 +326,11 @@ class OntologyPopulator:
         def concept(item, kind):
             mapping = item.get("mapping")
             expected = "skill" if kind == "Skill" else "occupation"
+            if kind == "Skill" and evidence[item["entity_id"]]["status"] == "unresolved":
+                diagnostic("explicit_skill_retained_without_taxonomy", [item])
+                return node("Skill", f"urn:career-coach:resume:{document_id}:local-skill:" + _digest(
+                    TaxonomyResolver.match_key(item["entity"]["text"])), [item], label=item["entity"]["text"],
+                    resolution_status="unresolved", resolution_reason=item.get("reason") or "no_supported_canonical_mapping")
             if (evidence[item["entity_id"]]["status"] != "resolved"
                     or item.get("taxonomy_type") != expected or not isinstance(mapping, dict)
                     or not all(isinstance(mapping.get(k), str) and mapping[k].strip()
@@ -272,7 +339,7 @@ class OntologyPopulator:
                 return None
             identity = "urn:career-coach:concept:" + expected + ":" + _digest(
                 [mapping["namespace"], mapping["id"], mapping["source_version"]])
-            return node(kind, identity, [item], label=mapping["label"], taxonomy=dict(mapping))
+            return node(kind, identity, [item], label=mapping["label"], taxonomy=dict(mapping), resolution_status="resolved")
 
         names = [i for i in items if i["entity"]["section"] == "title" and i["entity"]["label"] == "person"]
         person = node("Person", f"urn:career-coach:resume:{document_id}:person", names,
@@ -336,7 +403,15 @@ class OntologyPopulator:
                 assert_value(experience, "at_organization", organization, [title, *evidence_items], "explicit_employer_field", context)
             if reason is not None:
                 diagnostic("employer_relationship_not_established", organizations, block=context, reason=reason)
-            diagnostic("experience_duration_deferred", support, block=context)
+            duration, duration_reason = employment_duration(header_text, block["start"], self.as_of)
+            if duration is not None:
+                node_sources[experience.id]["duration"] = duration
+                date_support = [i for i in dates if duration["start"] <= i["entity"]["start"] < i["entity"]["end"] <= duration["end"]]
+                duration_scope = {"source_field": "section_texts.experience", "start": duration["start"], "end": duration["end"]}
+                assert_value(experience, "years_experience", round(duration["months"] / 12, 6),
+                             date_support or [title], "employment_calendar_month_difference", duration_scope)
+            else:
+                diagnostic("experience_duration_unresolved", support, block=context, reason=duration_reason)
 
         degree_blocks = _blocks(features, "education", "degree_entries")
         for item in items:
@@ -355,19 +430,11 @@ class OntologyPopulator:
             else:
                 diagnostic("unknown_degree_level", [item])
             blocks = [b for b in degree_blocks if b["start"] <= entity["start"] < entity["end"] <= b["end"]]
-            if len(blocks) != 1:
-                diagnostic("degree_completion_not_established", [item])
-                continue
-            block = blocks[0]
-            degrees = [i for i in items if i["entity"]["section"] == "education" and i["entity"]["label"] == "degree"
-                       and block["start"] <= i["entity"]["start"] < i["entity"]["end"] <= block["end"]]
-            prefix = texts["education"][texts["education"].rfind("\n", 0, entity["start"]) + 1:entity["start"]]
-            if (len(degrees) == 1 and COMPLETED.search(prefix) and not UNCERTAIN.search(block["text"])
-                    and not re.search(r"\b(?:will|present|current|future)\b", block["text"], re.I)):
-                context = {"source_field": "section_texts.education", "start": block["start"], "end": block["end"]}
-                assert_value(person, "holds_degree", degree, [item], "explicit_degree_completion", context)
-            else:
-                diagnostic("degree_completion_not_established", [item])
+            # holdsDegree represents a listed qualification, not confirmed attainment.
+            # A refined block enriches provenance but is not required for the link.
+            scope = blocks[0] if blocks else entity
+            context = {"source_field": "section_texts.education", "start": scope["start"], "end": scope["end"]}
+            assert_value(person, "holds_degree", degree, [item], "listed_education_degree", context)
 
         # Preserve every unhandled mention explicitly; not_applicable is not trash.
         used = {identity for info in node_sources.values() for identity in info["entity_ids"]}
@@ -378,7 +445,11 @@ class OntologyPopulator:
             info = node_sources[identity]
             instance.metadata = NodeMetadata(
                 label=info.get("label"), taxonomy=info.get("taxonomy"), original_title=info.get("original_title"),
+                resolution_status=info.get("resolution_status"), resolution_reason=info.get("resolution_reason"),
+                duration=info.get("duration"),
                 evidence=[{"entity_id": entity_id, "source_document": features["cv_id"],
+                           "extraction_sources": evidence[entity_id]["entity"].get("extraction_sources", []),
+                           "classification_conflicts": evidence[entity_id]["entity"].get("classification_conflicts", []),
                            **{key: evidence[entity_id]["entity"][key]
                               for key in ("source_field", "start", "end", "text", "label")}}
                           for entity_id in info["entity_ids"]])

@@ -50,8 +50,10 @@ inheritance require an explicit implementation; they are not inferred by Pydanti
 - Share Skill/Role concepts by taxonomy namespace + ID + version. Labels alone
   must not merge concepts. Preserve the original label and evidence separately.
   Organization names alone are also insufficient for cross-document identity.
-- Keep unresolved concepts as local mentions in the in-memory mappings until there is
-  an explicit policy for local graph concepts; never fabricate an O*NET identifier.
+- Explicit unmapped skills in Skills become document-scoped local Skill nodes with
+  `metadata.resolution_status=unresolved`, their source label/evidence, and no taxonomy
+  reference. Canonical concepts have `resolution_status=resolved`. Other unresolved
+  concept types remain in memory; never fabricate an O*NET identifier.
 - Resolve block membership from source offsets and boundaries. `block_index` is
   scoped to a section/category and is supporting metadata, not relationship proof.
 - Multiple plausible associations must produce a diagnostic, not an arbitrary
@@ -67,7 +69,7 @@ inheritance require an explicit implementation; they are not inferred by Pydanti
 | Experience | One supported employment entry from a refined experience block. An ambiguous/combined block needs review; not every role or organization mention creates a job. |
 | Organization | An explicitly identified organization with supporting context. Creation alone does not make it an employer or posting company. |
 | Role | A supported occupation concept, preferably taxonomy-normalized; preserve the original job title outside the current TTL. |
-| Skill | A supported taxonomy-normalized skill/software concept. Node existence alone does not establish applicant possession. |
+| Skill | A supported taxonomy-normalized concept, or an explicit skill-list item with a local ID and unresolved metadata. Node existence alone does not establish applicant possession. |
 | Degree | A specific applicant degree record with evidence. Do not use a shared degree-level node as an applicant's individual degree. |
 | DegreeLevel | A controlled degree-level concept from a curated alias table; not an arbitrary academic-major prediction. |
 | JobPosting | One source posting, identified by source + posting ID; requires a separate job-posting extraction input. Resume mentions must not create postings. |
@@ -80,7 +82,7 @@ inheritance require an explicit implementation; they are not inferred by Pydanti
 | `atOrganization` (Experience → Organization) | Associate organizations explicitly occupying an employer/affiliation header field. Preserve separate affiliations and combine only overlapping or whitespace-adjacent fragments of one printed name. Do not infer a primary employer or hierarchy, or attach clients, vendors and narrative mentions. |
 | `inRole` (Experience → Role) | Use the title belonging to that employment entry and its supported occupation mapping. References to colleagues' roles do not qualify. |
 | `hasSkill` (Person → Skill) | Accept explicit skills-list membership or a clearly attributed applicant usage statement. Negated skills, job requirements, vendor mentions, and coursework titles alone do not qualify. Do not derive skills from occupations. |
-| `holdsDegree` (Person → Degree) | Require evidence of an attained degree. A degree mention or past end date alone is not proof of completion. Ongoing, expected, and ambiguous degrees remain unasserted here. |
+| `holdsDegree` (Person → Degree) | Link every explicit degree entity in the resume's education section to the resume subject. Completion wording, dates, status, and the number of degrees in a block do not restrict the link. This means a listed qualification, not confirmed attainment. |
 | `degreeLevel` (Degree → DegreeLevel) | Normalize explicit degree text with a curated abbreviation/alias table. Do not derive level from dates, university name, or academic major. |
 | `forRole` (JobPosting → Role) | Map the advertised role from posting title/context, not roles mentioned as collaborators or prerequisites. Deferred until posting extraction exists. |
 | `minDegreeLevel` (JobPosting → DegreeLevel) | Use explicit minimum education requirements. Preferred education, equivalent experience and alternative qualifications must not silently become hard requirements. Deferred. |
@@ -93,7 +95,7 @@ inheritance require an explicit implementation; they are not inferred by Pydanti
 | --- | --- |
 | `rank` (DegreeLevel → integer) | Assign from a curated, versioned degree-level ordering, never from GLiNER confidence or an LLM guess. Not every credential is comparable; leave unsupported levels unranked. |
 | `minExperience` (JobPosting → float) | Normalize explicit minimum duration to years. Do not sum alternatives or confuse preferred experience with a minimum. Per-skill/role requirements need a schema extension. Deferred. |
-| `yearsExperience` (Experience → float) | Calculate only from sufficiently precise dates using a documented policy/as-of date, or an explicit duration unambiguously referring to that entry. Do not invent a missing year or sum overlapping entries into total experience. Defer calculation until date handling exists. |
+| `yearsExperience` (Experience → float) | Calculate calendar-month difference divided by 12, rounded to six decimals, from one unambiguous range in that employment entry's header. Education and other entries never supply dates. Present uses a recorded reference month. Missing precision, reversed/future ranges and ambiguity leave the value empty. |
 
 Nonnegative durations and the allowed degree ranking are application rules to
 validate during population; the current TTL only specifies primitive datatypes.
@@ -107,17 +109,18 @@ in-memory features/mappings until the schema is extended; do not invent predicat
 or squeeze them into unrelated fields. In particular, `atOrganization` has domain
 Experience and cannot be reused for Degree without changing the schema.
 
-Before production population, decide on an Education/attendance record so ongoing
-education can be represented without asserting `holdsDegree`. Also decide how to
-represent alternative/preferred job qualifications and assertion provenance.
+`holdsDegree` intentionally represents all listed qualifications without completion
+tracking. A separate Education/attendance model can be added later if institution
+and attendance details are needed. Also decide how to represent alternative/preferred
+job qualifications and assertion provenance.
 Entity-to-record grouping and these schema extensions precede graph ingestion;
 Neo4j insertion and match scoring are outside this step.
 
 ## Initial population coverage
 
-- `hasSkill`: canonical mappings in Skills only, with a line-level uncertainty/
+- `hasSkill`: explicit skill-list entities in Skills only, with a line-level uncertainty/
   negation guard. Explicit usage in experience/projects is deferred rather than
-  interpreted from a keyword occurrence. Unknown canonical mappings are reported.
+  interpreted from a keyword occurrence. Unmapped skills are retained as local nodes.
 - `hasExperience` and `inRole`: one title occupying a header slot in the first five
   header lines, supported by an organization or date. Employer-first and title-first
   columns and labeled positions are supported. After the title, only fully
@@ -139,11 +142,23 @@ Neo4j insertion and match scoring are outside this step.
   not a universal guarantee of semantic correctness for unseen layouts.
 - `degreeLevel`: explicit degree aliases for associate, bachelor, master, doctorate.
   `rank` uses the documented v1 ordering 1, 2, 3, 4 for those levels only.
-- `holdsDegree`: explicit "earned/awarded/completed/received [a/the]" immediately
-  before a degree in its unique refined entry, without future/uncertain wording.
-  Past dates alone are insufficient. Unconfirmed degrees remain unattached nodes.
-- `yearsExperience`, all JobPosting properties, and education institution/date
-  relationships are deferred. Other mentions are retained in the report.
+- `holdsDegree`: every source-validated degree entity in Education is linked to the
+  resume subject, including expected or ongoing qualifications and multiple degrees
+  in a single entry. Refined blocks enrich provenance but are not required. Unknown
+  degree levels do not prevent a link. No completion detection is performed.
+- `yearsExperience`: only the current employment header is inspected. Named months
+  (including abbreviations), MM/YYYY and YYYY-MM ranges are supported. One explicit
+  year applies to both named months in a shared-year range such as June–August 2025.
+  Present/Current/Now/Ongoing resolve to the run's reference month. September–Present
+  has no start year and remains unknown; education dates never fill it. Bare-year
+  ranges lack month precision. Multiple, reversed or future ranges remain unknown.
+  Same-month ranges produce zero; no inclusive-month increment is added. Calculate
+  each employment separately without summing overlapping jobs. `metadata.duration`
+  preserves normalized endpoints, month count, exact source span, method and
+  reference month. The default reference is the local run month; Python callers
+  can supply `OntologyPopulator(as_of=date(...))` for reproducibility.
+- All JobPosting properties and education institution/date relationships remain
+  deferred. Other mentions are retained in the report.
 
 The report records source and schema hashes, the population policy version,
 document/node identities, labels/taxonomy metadata, all input entity evidence,
@@ -156,3 +171,14 @@ taxonomy namespace/ID/version, original job title where applicable, and supporti
 entity spans with source document, original text and extraction label. Metadata is
 a transport envelope, not an additional TTL predicate. It stays in the same final
 JSON file; complete diagnostics and assertion reports remain in memory.
+
+## Explicit extraction before NER
+
+Seed exact spans from delimited skills lists and degree abbreviations in refined
+education headings before GLiNER. Split only the known composites C/C++ and
+HTML/CSS, retaining actual component spans; preserve other slashes and omit URLs.
+Compatible GLiNER predictions refine generic skill labels without duplicating
+mentions. Conflicting labels are retained on the entity for existing LLM review;
+even canonical matches are eligible when they carry a documented conflict.
+Ordinary resolved entities remain read-only. Empty NER output cannot delete seeds.
+Final source evidence preserves extraction sources and any remaining conflicts.

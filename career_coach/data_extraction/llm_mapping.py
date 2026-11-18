@@ -20,7 +20,7 @@ MAX_CALLS = 64
 CHUNK_CHARS = 3000
 REQUEST_TIMEOUT = 60
 REVIEW_CONCURRENCY = 3
-PROMPT_VERSION = "explicit-mapping-v2"
+PROMPT_VERSION = "explicit-mapping-v3"
 SECTIONS = ("title", "summary", "experience", "education", "projects", "skills")
 EntityLabel = Literal["person", "organization", "university", "job title", "degree",
                       "academic major", "date", "location", "project name", "technical skill",
@@ -46,7 +46,8 @@ Entity edits must quote exact contiguous text from the supplied chunk. Preserve 
 punctuation and whitespace. For repeated quotes, occurrence is a zero-based match index
 within the chunk; otherwise use null. Never fabricate source text.
 Use only allowed_labels for this block. Review eligible entities using supplied IDs;
-resolved entities are read-only context. 'confirm' means the existing classification is
+resolved entities are read-only context unless supplied as eligible with a documented
+classification_conflicts list. Review those conflicting predictions too. 'confirm' means the existing classification is
 correct, not that it has an O*NET mapping. 'reclassify' changes only a label at the SAME
 span. 'add' is only for a missed explicit entity, never an inferred skill or fact.
 For taxonomy selection, choose ONLY a supplied candidate_id or null. Match the explicit
@@ -237,6 +238,9 @@ class LLMMappingResolver:
                 raise ValueError("Input entity evidence does not match parsing output")
         eligible_ids = {item["entity_id"] for group in ("unresolved", "not_applicable")
                         for item in mappings.get(group, [])}
+        # A canonical match does not settle a documented classification conflict.
+        eligible_ids.update(item["entity_id"] for item in originals
+                            if item["entity"].get("classification_conflicts"))
         audit = {"model": self.model, "prompt_version": PROMPT_VERSION,
                  "source_sha256": hashlib.sha256(json.dumps(features["section_texts"], sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
                  "baseline_sha256": hashlib.sha256(json.dumps(mappings, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
@@ -251,7 +255,7 @@ class LLMMappingResolver:
             payload = {
                 "chunk": chunk, "allowed_labels": sorted(BLOCK_LABELS[chunk["category"]]),
                 "eligible_entities": [{"entity_id": item["entity_id"], "entity": {
-                    k: item["entity"][k] for k in ("text", "label", "start", "end")}} for item in eligible.values()],
+                    k: item["entity"][k] for k in ("text", "label", "start", "end", "classification_conflicts") if k in item["entity"]}} for item in eligible.values()],
                 "read_only_entities": [{k: item["entity"][k] for k in ("text", "label", "start", "end")}
                                        for item in in_chunk if item["entity_id"] not in eligible]}
             review_jobs.append((chunk, eligible, payload))
@@ -327,6 +331,8 @@ class LLMMappingResolver:
                   "block_index": chunk["block_index"], "score": None, "method": "llm", "model": self.model}
         if edit.action == "confirm":
             entity = dict(before["entity"])
+        entity["extraction_sources"] = sorted(set(before["entity"].get("extraction_sources", []) if before else []) | {"llm"})
+        entity.pop("classification_conflicts", None)
         key = entity_key(entity)
         if edit.action == "add" and key in added_keys:
             return
