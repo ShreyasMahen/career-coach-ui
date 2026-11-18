@@ -176,13 +176,82 @@ class PopulationTests(unittest.TestCase):
             level = next(result.graph.objects(degree, JM.degreeLevel))
             self.assertIn(int(next(result.graph.objects(level, JM.rank))), (2, 3))
 
-    def test_ambiguous_employer_is_reported_without_guessing(self):
-        # A conflicting organization classification at the title span is ambiguous.
+    def test_conflicting_organization_label_does_not_suppress_valid_employer(self):
+        # Reject the role/organization conflict without discarding other evidence.
         self.add("experience", "Software Engineer", "organization")
         result = self.populate()
         self.assertEqual(len(list(result.graph.subjects(RDF.type, JM.Experience))), 1)
-        self.assertFalse(list(result.graph.triples((None, JM.atOrganization, None))))
-        self.assertIn("employer_relationship_not_established", {d["code"] for d in result.report["diagnostics"]})
+        employers = list(result.graph.objects(None, JM.atOrganization))
+        self.assertEqual(len(employers), 1)
+        self.assertEqual(result.report["nodes"][str(employers[0])]["label"], "Example Corp")
+
+    def employment(self, heading, organizations, title="Data Engineer", date="2021 - 2024", others=()):
+        self.replace_experience(heading + "\nBuilt tools for a customer.")
+        for name in organizations:
+            self.add("experience", name, "organization")
+        self.add("experience", title, "job title", "resolved", "developer")
+        self.add("experience", date, "date")
+        for quote, label in others:
+            self.add("experience", quote, label)
+        result = self.populate()
+        employers = list(result.graph.objects(None, JM.atOrganization))
+        return result, {result.report["nodes"][str(identity)]["label"] for identity in employers}
+
+    def test_same_field_affiliations_are_preserved_without_hierarchy(self):
+        for first, second in (("Nimbus Lab", "Westbridge University"), ("Field Study Group", "East Coast Institute")):
+            with self.subTest(first=first):
+                # Each case starts from an independent set of source mentions.
+                result, labels = self.employment(f"{first}, {second}\n2021 - 2024\nData Engineer",
+                                                 [first, second])
+                self.assertEqual(labels, {first, second})
+                self.assertFalse(any("parent" in str(p).lower() for s, p, o in result.graph))
+
+    def test_adjacent_and_overlapping_fragments_form_one_printed_name(self):
+        for fragments in (["WCU", "School of Design"], ["WCU School of Design", "School of Design"]):
+            with self.subTest(fragments=fragments):
+                result, labels = self.employment("WCU School of Design\n2021 - 2024\nData Engineer", fragments)
+                self.assertEqual(labels, {"WCU School of Design"})
+                organization = next(n for n in result.nodes if n.rdf_type == str(JM.Organization))
+                self.assertEqual(len(organization.metadata.evidence), 2)
+
+    def test_location_or_project_prefix_does_not_block_an_organization(self):
+        for label in ("location", "project name"):
+            with self.subTest(label=label):
+                _, labels = self.employment("Orbit Project, North University\n2021 - 2024\nData Engineer",
+                                             ["North University"], others=[("Orbit Project", label)])
+                self.assertEqual(labels, {"North University"})
+
+    def test_inline_employer_and_title_order_and_explicit_connector(self):
+        for heading in ("Helix Ltd | Data Engineer | 2021 - 2024",
+                        "Data Engineer | Helix Ltd | 2021 - 2024",
+                        "Data Engineer at Helix Ltd\n2021 - 2024",
+                        "Company: Helix Ltd\n2021 - 2024\nPosition: Data Engineer"):
+            with self.subTest(heading=heading):
+                result, labels = self.employment(heading, ["Helix Ltd"])
+                self.assertEqual(labels, {"Helix Ltd"})
+                self.assertEqual(len(list(result.graph.subjects(RDF.type, JM.Experience))), 1)
+
+    def test_explicit_employer_is_selected_over_client_and_vendor_fields(self):
+        _, labels = self.employment("Employer: Helix Ltd | Client: Cedar Bank | Vendor: Cloud Works\n2021 - 2024\nData Engineer",
+                                    ["Helix Ltd", "Cedar Bank", "Cloud Works"])
+        self.assertEqual(labels, {"Helix Ltd"})
+
+    def test_alternatives_agency_client_and_competing_fields_stay_unresolved(self):
+        cases = (("Alpha Co or Beta Co", "alternative_employers"),
+                 ("Alpha Co / Beta Co", "alternative_employers"),
+                 ("Alpha Co | Beta Co", "competing_or_missing_employer_fields"),
+                 ("Agency: Alpha Co | Client: Beta Co", "unqualified_employer_client_context"),
+                 ("Alpha Co\nBeta Co", "competing_or_missing_employer_fields"))
+        for heading, reason in cases:
+            with self.subTest(heading=heading):
+                result, labels = self.employment(heading + "\n2021 - 2024\nData Engineer", ["Alpha Co", "Beta Co"])
+                self.assertEqual(labels, set())
+                self.assertIn(reason, {d.get("reason") for d in result.report["diagnostics"]})
+
+    def test_technical_fields_and_narrative_organizations_do_not_become_employers(self):
+        _, labels = self.employment("Helix Ltd\n2021 - 2024\nData Engineer | Tools: Cloud Works",
+                                    ["Helix Ltd", "Cloud Works"])
+        self.assertEqual(labels, {"Helix Ltd"})
 
     def test_ambiguous_titles_or_missing_blocks_do_not_create_employment(self):
         self.add("experience", "Example Corp", "job title", "resolved", "other-role")

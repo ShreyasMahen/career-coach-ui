@@ -15,7 +15,7 @@ from .entity_extraction import TaxonomyResolver
 from .ontology import NodeMetadata, OntologyNode, load_ontology
 
 
-POPULATION_VERSION = "explicit-population-v2"
+POPULATION_VERSION = "explicit-population-v3"
 # A small, versioned policy, not a universal ordering of all credentials.
 DEGREE_LEVELS = {
     "associate": (1, {"aa", "as", "aas", "associate", "associate degree", "associate of science", "associate of arts"}),
@@ -58,6 +58,91 @@ def _blocks(features, section, category=None):
     return blocks
 
 
+def _mask(text, start, mentions, labels):
+    remainder = list(text)
+    for item in mentions:
+        e = item["entity"]
+        if e["label"] in labels and start <= e["start"] < e["end"] <= start + len(text):
+            remainder[e["start"] - start:e["end"] - start] = " " * (e["end"] - e["start"])
+    return "".join(remainder)
+
+
+def _title_slot(raw, start, entity, mentions):
+    """Recognize title fields in either employer/title order, not narrative roles."""
+    prefix = _mask(raw[:entity["start"] - start], start, mentions,
+                   {"organization", "location", "date"})
+    prefix = re.sub(r"\b(?:job\s*title|title|role|position|employer|company|organization|location|date|present|current|to)\b",
+                    "", prefix, flags=re.I)
+    return not re.search(r"\w", prefix)
+
+
+def _employer_fields(text, start, end, mentions):
+    """Return supported organization spans and their evidence, or an omission reason.
+
+    Comma/parenthesis-separated names in one affiliation field remain distinct.
+    Whitespace-adjacent or overlapping NER spans form one printed name. This does
+    not infer organization identity, a primary employer, or parent/subunit edges.
+    """
+    candidates = []
+    excluded = re.compile(r"^\s*(client|customer|vendor|partner|recruiter|agency|staffing\s+agency|tools?|technologies|stack)\s*:", re.I)
+    employer_label = re.compile(r"^\s*(?:employer|company|organization)\s*:\s*", re.I)
+    conflicting_context = False
+    for field in re.finditer(r"[^|;\t\n]+", text[start:end]):
+        field_start = start + field.start()
+        field_end = start + field.end()
+        raw = field[0]
+        excluded_label = excluded.match(raw)
+        if excluded_label:
+            if excluded_label[1].casefold() not in {"tool", "tools", "technologies", "stack"}:
+                conflicting_context = True
+            continue
+        explicit = bool(employer_label.match(raw))
+        contained = [i for i in mentions if field_start <= i["entity"]["start"] < i["entity"]["end"] <= field_end]
+        organizations = []
+        for item in contained:
+            e = item["entity"]
+            if e["label"] != "organization":
+                continue
+            # A conflicting role/date classification is not employer evidence.
+            if any(i["entity"]["label"] in {"job title", "date"}
+                   and i["entity"]["start"] < e["end"] and e["start"] < i["entity"]["end"]
+                   for i in contained):
+                continue
+            organizations.append(item)
+        if not organizations:
+            continue
+        remainder = _mask(raw, field_start, contained, {"organization", "job title", "date", "location", "project name"})
+        remainder = re.sub(r"\b(?:employer|company|organization|job\s*title|title|role|position|location|date|present|current|to)\b",
+                           "", remainder, flags=re.I)
+        if any(i["entity"]["label"] == "job title" for i in contained):
+            remainder = re.sub(r"\b(?:at|for)\b", "", remainder, flags=re.I)
+        if re.search(r"\bor\b|/", remainder, re.I):
+            return [], "alternative_employers"
+        # Free prose or unclassified name material is not a complete header field.
+        if re.search(r"\w", remainder):
+            continue
+        groups = []
+        for item in sorted(organizations, key=lambda i: (i["entity"]["start"], i["entity"]["end"])):
+            e = item["entity"]
+            if groups and (e["start"] <= groups[-1]["end"]
+                           or not text[groups[-1]["end"]:e["start"]].strip()):
+                groups[-1]["end"] = max(groups[-1]["end"], e["end"])
+                groups[-1]["mentions"].append(item)
+            else:
+                groups.append({"start": e["start"], "end": e["end"], "mentions": [item]})
+        candidates.append({"explicit": explicit, "groups": groups})
+    explicit = [c for c in candidates if c["explicit"]]
+    if explicit:
+        selected = explicit
+    elif conflicting_context:
+        return [], "unqualified_employer_client_context"
+    elif len(candidates) == 1:
+        selected = candidates
+    else:
+        return [], "competing_or_missing_employer_fields"
+    return [group for candidate in selected for group in candidate["groups"]], None
+
+
 def _header_end(block, mentions=()):
     """End after the title and subsequent fully entity-covered header lines.
 
@@ -81,19 +166,12 @@ def _header_end(block, mentions=()):
     for index, (start, end, raw) in enumerate(rows):
         titles = [i["entity"] for i in mentions if i["entity"]["label"] == "job title"
                   and start <= i["entity"]["start"] < i["entity"]["end"] <= end]
-        if not any(not raw[:e["start"] - start].strip() or re.fullmatch(
-                r"(?:job\s*)?title\s*:|role\s*:", raw[:e["start"] - start].strip(), re.I)
-                   for e in titles):
+        if not any(_title_slot(raw, start, e, mentions) for e in titles):
             continue
         boundary = end
         for next_start, next_end, next_raw in rows[index + 1:]:
-            remainder = list(next_raw)
-            for item in mentions:
-                e = item["entity"]
-                if e["label"] in {"date", "location", "organization", "job title"} and next_start <= e["start"] < e["end"] <= next_end:
-                    remainder[e["start"] - next_start:e["end"] - next_start] = " " * (e["end"] - e["start"])
-            leftover = "".join(remainder)
-            leftover = re.sub(r"\b(?:present|current|to|location|dates?|employer|company|organization)\b", "", leftover, flags=re.I)
+            leftover = _mask(next_raw, next_start, mentions, {"date", "location", "organization", "job title"})
+            leftover = re.sub(r"\b(?:present|current|to|location|dates?|employer|company|organization|client|customer|vendor|partner|agency|recruiter)\b", "", leftover, flags=re.I)
             if re.search(r"\w", leftover):
                 break
             boundary = next_end
@@ -229,8 +307,9 @@ class OntologyPopulator:
             roles = []
             for item in members:
                 entity = item["entity"]
-                prefix = texts["experience"][texts["experience"].rfind("\n", 0, entity["start"]) + 1:entity["start"]].strip()
-                if entity["label"] == "job title" and (not prefix or re.fullmatch(r"(?:job\s*)?title\s*:|role\s*:", prefix, re.I)):
+                line_start = texts["experience"].rfind("\n", 0, entity["start"]) + 1
+                raw = _line(texts["experience"], entity["start"], entity["end"])
+                if entity["label"] == "job title" and _title_slot(raw, line_start, entity, members):
                     roles.append(item)
             organizations = [i for i in members if i["entity"]["label"] == "organization"]
             dates = [i for i in members if i["entity"]["label"] == "date"]
@@ -247,24 +326,16 @@ class OntologyPopulator:
             role = concept(title, "Role")
             if role is not None:
                 assert_value(experience, "in_role", role, [title], "employment_header_title", context)
-            # Only standalone/name-leading organization header lines qualify.
-            employers = []
-            for item in organizations:
-                e = item["entity"]
-                prefix = texts["experience"][texts["experience"].rfind("\n", 0, e["start"]) + 1:e["start"]].strip()
-                line_end = texts["experience"].find("\n", e["end"])
-                suffix = texts["experience"][e["end"]:line_end if line_end != -1 else len(texts["experience"])].strip()
-                name_suffix = not suffix or re.match(
-                    r"^[|,–—-]|^(?:\d{4}|January|February|March|April|May|June|July|August|September|October|November|December)\b", suffix, re.I)
-                if name_suffix and (not prefix or re.fullmatch(r"(?:employer|company|organization)\s*:", prefix, re.I)):
-                    employers.append(item)
-            if len(organizations) == len(employers) == 1:
-                employer = employers[0]
-                organization = node("Organization", f"urn:career-coach:resume:{document_id}:organization:{employer['entity_id']}",
-                                    [employer], label=employer["entity"]["text"])
-                assert_value(experience, "at_organization", organization, [title, employer], "single_employer_header", context)
-            else:
-                diagnostic("employer_relationship_not_established", organizations, block=context)
+            affiliations, reason = _employer_fields(texts["experience"], block["start"], header_end, members)
+            for affiliation in affiliations:
+                evidence_items = affiliation["mentions"]
+                identity = (evidence_items[0]["entity_id"] if len(evidence_items) == 1
+                            else _digest([affiliation["start"], affiliation["end"], ids(evidence_items)]))
+                organization = node("Organization", f"urn:career-coach:resume:{document_id}:organization:{identity}",
+                                    evidence_items, label=texts["experience"][affiliation["start"]:affiliation["end"]])
+                assert_value(experience, "at_organization", organization, [title, *evidence_items], "explicit_employer_field", context)
+            if reason is not None:
+                diagnostic("employer_relationship_not_established", organizations, block=context, reason=reason)
             diagnostic("experience_duration_deferred", support, block=context)
 
         degree_blocks = _blocks(features, "education", "degree_entries")

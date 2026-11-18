@@ -77,7 +77,7 @@ inheritance require an explicit implementation; they are not inferred by Pydanti
 | Property (domain → range) | Required mapping rule |
 | --- | --- |
 | `hasExperience` (Person → Experience) | Attach only an entry belonging to the resume subject. Projects and hypothetical descriptions do not automatically count as employment. |
-| `atOrganization` (Experience → Organization) | Associate an employer from the entry header/explicit employment statement. Do not attach clients, collaborators, tools/vendors, or every organization in a bullet. |
+| `atOrganization` (Experience → Organization) | Associate organizations explicitly occupying an employer/affiliation header field. Preserve separate affiliations and combine only overlapping or whitespace-adjacent fragments of one printed name. Do not infer a primary employer or hierarchy, or attach clients, vendors and narrative mentions. |
 | `inRole` (Experience → Role) | Use the title belonging to that employment entry and its supported occupation mapping. References to colleagues' roles do not qualify. |
 | `hasSkill` (Person → Skill) | Accept explicit skills-list membership or a clearly attributed applicant usage statement. Negated skills, job requirements, vendor mentions, and coursework titles alone do not qualify. Do not derive skills from occupations. |
 | `holdsDegree` (Person → Degree) | Require evidence of an attained degree. A degree mention or past end date alone is not proof of completion. Ongoing, expected, and ambiguous degrees remain unasserted here. |
@@ -118,15 +118,25 @@ Neo4j insertion and match scoring are outside this step.
 - `hasSkill`: canonical mappings in Skills only, with a line-level uncertainty/
   negation guard. Explicit usage in experience/projects is deferred rather than
   interpreted from a keyword occurrence. Unknown canonical mappings are reported.
-- `hasExperience` and `inRole`: one name-leading title in the first five header
-  lines, supported by an organization or date. After the title, only fully
+- `hasExperience` and `inRole`: one title occupying a header slot in the first five
+  header lines, supported by an organization or date. Employer-first and title-first
+  columns and labeled positions are supported. After the title, only fully
   entity-covered header lines (dates, locations, organization names, or another
   title indicating ambiguity) extend the header. Unbulleted achievement prose
   stops it; organization mentions inside that prose cannot become employers.
   Ambiguous headers are omitted; missing occupation mappings leave `inRole` unset.
-- `atOrganization`: exactly one header organization, on a name-leading line with
-  no prose suffix. Multiple organizations are reported, not arbitrarily selected.
-  Header rules are conservative heuristics and require evaluation on real inputs.
+- `atOrganization`: parse source fields separated by newlines, pipes, semicolons or
+  tabs. A single complete employer field can contain multiple comma/parenthesis-
+  separated organization affiliations; preserve them individually without choosing
+  a primary employer or asserting parent/subunit relationships. Overlapping or
+  whitespace-adjacent spans in that field form one exact printed organization name.
+  Dates, locations, projects and position spans provide field context but are never
+  promoted to organizations. Explicit Employer/Company/Organization labels take
+  precedence over other fields. Client/vendor/agency and technical fields are
+  excluded. Alternatives ("or", "/"), unqualified agency/client contexts and
+  competing unlabeled employer fields remain unresolved. These are structural
+  heuristics relying on source segmentation and entity classifications; they are
+  not a universal guarantee of semantic correctness for unseen layouts.
 - `degreeLevel`: explicit degree aliases for associate, bachelor, master, doctorate.
   `rank` uses the documented v1 ordering 1, 2, 3, 4 for those levels only.
 - `holdsDegree`: explicit "earned/awarded/completed/received [a/the]" immediately
